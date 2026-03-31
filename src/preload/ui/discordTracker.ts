@@ -1,6 +1,7 @@
 import Helpers from "../../utils/Helpers";
 import PlaybackState from "../../utils/PlaybackState";
 import DiscordPresence from "../../core/DiscordPresence";
+import { mpvBridge } from './mpvBridge';
 
 export const discordTracker = {
     
@@ -21,7 +22,50 @@ export const discordTracker = {
 
     _checkWatching: async () => {
         if (!location.href.includes('#/player')) return;
-        
+
+        // MPV path: use mpvBridge timing data when MPV is active
+        const mpvState = mpvBridge.getMpvPlaybackState();
+        if (mpvState) {
+            const playerState = await PlaybackState.getPlayerState();
+            if (!playerState) return;
+            const { metaDetails } = playerState;
+
+            const updatePresence = () => {
+                const timing = mpvBridge.getMpvPlaybackState();
+                if (!timing) return;
+
+                if (timing.paused) {
+                    const formattedTime = Helpers.formatTime(timing.currentTime);
+
+                    if (metaDetails.type === "series") {
+                        const { episode, season } = playerState.seriesInfoDetails!;
+                        const isKitsu = metaDetails.id.startsWith("kitsu:");
+                        const stateStr = `Paused at ${formattedTime} in ${!isKitsu ? `S${season} E${episode}` : `E${episode}`}`;
+                        DiscordPresence.setPaused(metaDetails.name, stateStr, metaDetails.poster);
+                    } else if (metaDetails.type === "movie") {
+                        DiscordPresence.setPaused(metaDetails.name, `Paused at ${formattedTime}`, metaDetails.poster);
+                    }
+                } else {
+                    const startTimestamp = Math.floor(Date.now() / 1000) - Math.floor(timing.currentTime);
+                    const endTimestamp = startTimestamp + Math.floor(timing.duration);
+
+                    if (metaDetails.type === "series") {
+                        const { episode, season } = playerState.seriesInfoDetails!;
+                        const isKitsu = metaDetails.id.startsWith("kitsu:");
+                        const stateStr = `Watching ${!isKitsu ? `S${season} E${episode}` : `E${episode}`}`;
+                        DiscordPresence.setPlaying(metaDetails.name, stateStr, startTimestamp, endTimestamp, metaDetails.poster);
+                    } else if (metaDetails.type === "movie") {
+                        DiscordPresence.setPlaying(metaDetails.name, 'Watching', startTimestamp, endTimestamp, metaDetails.poster);
+                    }
+                }
+            };
+
+            updatePresence();
+            setInterval(updatePresence, 5000);
+            return;
+        }
+
+        // HTML5 <video> fallback path
         try {
             await Helpers.waitForElm('video');
             const video = document.getElementsByTagName('video')[0] as HTMLVideoElement;
