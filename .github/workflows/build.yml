@@ -56,6 +56,11 @@ jobs:
           npm install --no-optional
           npm install -g @electron/rebuild
 
+      - name: Download libmpv binaries
+        run: |
+          node scripts/download-libmpv.js ${{ matrix.target }} ${{ matrix.arch }}
+        shell: bash
+
       - name: Manually install dmg-license (macOS only)
         if: matrix.os == 'macos-latest'
         run: npm install dmg-license

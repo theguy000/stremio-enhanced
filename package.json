@@ -5,6 +5,8 @@
 	"main": "./dist/main.js",
 	"scripts": {
 		"dist": "tsc && node ./copyComponents.js",
+		"build:native": "node -e \"try{require('child_process').execSync('cd native && npx node-gyp rebuild',{stdio:'inherit'})}catch(e){console.warn('Native addon build skipped:',e.message)}\"",
+		"dist:full": "npm run build:native && tsc && node ./copyComponents.js",
 		"watch": "tsc -w",
 		"lint": "eslint -c .eslintrc --ext .ts ./src",
 		"dev": "node -e \"console.clear()\" && npm run dist && npx electron --log-level=3 ./dist/main.js --devtools",
