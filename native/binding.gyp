@@ -6,13 +6,19 @@
     ],
     "include_dirs": [
       "<!@(node -p \"require('node-addon-api').include\")",
+      "deps/mpv",
       "deps/<(OS)-<(target_arch)"
     ],
     "defines": ["NAPI_VERSION=8", "NAPI_DISABLE_CPP_EXCEPTIONS"],
     "conditions": [
       ["OS=='win'", {
         "sources": ["src/gl_context_wgl.cpp"],
-        "libraries": ["-lopengl32", "-lgdi32"]
+        "libraries": ["-lopengl32", "-lgdi32"],
+        "msvs_settings": {
+          "VCCLCompilerTool": {
+            "AdditionalOptions": ["/std:c++17"]
+          }
+        }
       }],
       ["OS=='linux'", {
         "sources": ["src/gl_context_egl.cpp"],
