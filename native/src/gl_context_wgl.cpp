@@ -13,7 +13,7 @@ public:
         if (!hwnd_) return false;
 
         hdc_ = GetDC(hwnd_);
-        if (!hdc_) return false;
+        if (!hdc_) { destroy(); return false; }
 
         // Minimal pixel format: 32-bit RGBA, no depth
         PIXELFORMATDESCRIPTOR pfd = {};
@@ -25,10 +25,10 @@ public:
         pfd.iLayerType = PFD_MAIN_PLANE;
 
         int fmt = ChoosePixelFormat(hdc_, &pfd);
-        if (!fmt || !SetPixelFormat(hdc_, fmt, &pfd)) return false;
+        if (!fmt || !SetPixelFormat(hdc_, fmt, &pfd)) { destroy(); return false; }
 
         hglrc_ = wglCreateContext(hdc_);
-        if (!hglrc_) return false;
+        if (!hglrc_) { destroy(); return false; }
 
         wglMakeCurrent(hdc_, hglrc_);
         opengl32_ = GetModuleHandleW(L"opengl32.dll");

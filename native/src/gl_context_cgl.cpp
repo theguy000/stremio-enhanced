@@ -15,10 +15,10 @@ public:
 
         GLint numPixelFormats = 0;
         CGLError err = CGLChoosePixelFormat(attrs, &pixelFormat_, &numPixelFormats);
-        if (err != kCGLNoError || numPixelFormats == 0) return false;
+        if (err != kCGLNoError || numPixelFormats == 0) { destroy(); return false; }
 
         err = CGLCreateContext(pixelFormat_, nullptr, &context_);
-        if (err != kCGLNoError) return false;
+        if (err != kCGLNoError) { destroy(); return false; }
 
         makeCurrent();
         return true;

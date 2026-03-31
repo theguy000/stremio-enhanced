@@ -32,7 +32,7 @@ public:
         // 3. Fall back to default display
         display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
         if (display_ == EGL_NO_DISPLAY) return false;
-        if (!eglInitialize(display_, nullptr, nullptr)) return false;
+        if (!eglInitialize(display_, nullptr, nullptr)) { destroy(); return false; }
 
     have_display:
         // Choose config — prefer OpenGL ES 3.0, fall back to OpenGL
@@ -67,6 +67,7 @@ public:
             eglBindAPI(EGL_OPENGL_API);
             useGL = true;
         } else {
+            destroy();
             return false;
         }
 
@@ -87,7 +88,7 @@ public:
             };
             context_ = eglCreateContext(display_, config, EGL_NO_CONTEXT, ctxAttrsES);
         }
-        if (context_ == EGL_NO_CONTEXT) return false;
+        if (context_ == EGL_NO_CONTEXT) { destroy(); return false; }
 
         // Create a 1x1 pbuffer surface (some drivers need a surface to make current)
         static const EGLint pbufferAttrs[] = {
