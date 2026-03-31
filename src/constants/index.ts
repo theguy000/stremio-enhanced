@@ -68,6 +68,21 @@ export const IPC_CHANNELS = {
     SHOW_ALERT: 'show-alert'
 } as const;
 
+// MPV IPC Channel names for mpv <-> renderer communication
+export const MPV_IPC = {
+    LOAD_FILE: 'mpv:load-file',
+    COMMAND: 'mpv:command',
+    SET_PROPERTY: 'mpv:set-property',
+    GET_PROPERTY: 'mpv:get-property',
+    STOP: 'mpv:stop',
+    FRAME_READY: 'mpv:frame-ready',
+    FRAME_DISPLAYED: 'mpv:frame-displayed',
+    PROPERTY_CHANGE: 'mpv:property-change',
+    EVENT: 'mpv:event',
+    INIT_SAB: 'mpv:init-sab',
+    AVAILABLE: 'mpv:available',
+} as const;
+
 // File extensions for mods
 export const FILE_EXTENSIONS = {
     THEME: '.theme.css',
