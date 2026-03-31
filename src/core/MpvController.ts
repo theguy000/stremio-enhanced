@@ -38,7 +38,7 @@ class MpvController {
             logger.info('MPV addon loaded successfully');
 
             this.setupCallbacks(mainWindow);
-            this.setupIPC(mainWindow);
+            this.setupIPC();
             this.observeProperties();
 
             mainWindow.webContents.on('did-finish-load', () => {
@@ -68,7 +68,7 @@ class MpvController {
         };
     }
 
-    private setupIPC(mainWindow: BrowserWindow) {
+    private setupIPC() {
         if (this.ipcRegistered) return;
         this.ipcRegistered = true;
 
