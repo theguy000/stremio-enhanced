@@ -4,6 +4,7 @@ import DiscordPresence from "../core/DiscordPresence";
 import { discordTracker } from "./ui/discordTracker";
 import EmbeddedSubtitles from "../utils/EmbeddedSubtitles";
 import { STORAGE_KEYS, IPC_CHANNELS } from "../constants";
+import { mpvInterceptor } from './ui/mpvInterceptor';
 
 // plugin API bridges
 import { alertAPI } from './api/alert';
@@ -59,6 +60,9 @@ window.addEventListener("load", () => {
         DiscordPresence.start();
         discordTracker.init();
     }
+
+    // MPV Player
+    mpvInterceptor.init();
 
     // UI Hooks (Transparency)
     getTransparencyStatus().then((status) => {
