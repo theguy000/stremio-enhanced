@@ -5,6 +5,7 @@ import { discordTracker } from "./ui/discordTracker";
 import EmbeddedSubtitles from "../utils/EmbeddedSubtitles";
 import { STORAGE_KEYS, IPC_CHANNELS } from "../constants";
 import { mpvInterceptor } from './ui/mpvInterceptor';
+import { mpvBridge } from './ui/mpvBridge';
 
 // plugin API bridges
 import { alertAPI } from './api/alert';
@@ -42,7 +43,9 @@ window.addEventListener("load", () => {
     window.addEventListener("hashchange", () => {
         if (isTransparencyEnabled) addTitleBar();
         checkSettings();
-        EmbeddedSubtitles.checkWatching();
+        if (!mpvBridge.isActive()) {
+            EmbeddedSubtitles.checkWatching();
+        }
     });
 
     ipcRenderer.on(IPC_CHANNELS.FULLSCREEN_CHANGED, (_, isFullscreen: boolean) => {

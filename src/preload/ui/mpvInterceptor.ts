@@ -3,6 +3,7 @@ import { MPV_IPC } from '../../constants';
 import Helpers from '../../utils/Helpers';
 import PlaybackState from '../../utils/PlaybackState';
 import { mpvCanvas } from './mpvCanvas';
+import { mpvBridge } from './mpvBridge';
 import { getLogger } from '../../utils/logger';
 
 const logger = getLogger('MpvInterceptor');
@@ -75,6 +76,7 @@ class MpvInterceptor {
 
             ipcRenderer.send(MPV_IPC.LOAD_FILE, streamUrl);
             this.active = true;
+            mpvBridge.activate();
             logger.info('MPV activated for: ' + streamUrl);
         } catch (err) {
             logger.error('Failed to activate MPV: ' + err);
@@ -94,6 +96,7 @@ class MpvInterceptor {
         this.observer?.disconnect();
         this.observer = null;
 
+        mpvBridge.deactivate();
         this.active = false;
         logger.info('MPV deactivated');
     }
