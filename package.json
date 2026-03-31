@@ -28,6 +28,7 @@
 		"@types/unzipper": "^0.10.11",
 		"electron": "^41.1.0",
 		"electron-builder": "^26.4.0",
+		"node-addon-api": "^8.0.0",
 		"typescript": "^5.7.2"
 	},
 	"dependencies": {
@@ -63,7 +64,15 @@
 		},
 		"asarUnpack": [
 			"**/register-scheme/build/Release/*.node",
-			"**/register-scheme/node-addon-api/src/node-api.target.mk"
+			"**/register-scheme/node-addon-api/src/node-api.target.mk",
+			"**/node_libmpv/**/*.node"
+		],
+		"extraResources": [
+			{
+				"from": "native/deps/${os}-${arch}",
+				"to": "libmpv",
+				"filter": ["!*.h", "!*.lib"]
+			}
 		],
 		"win": {
 			"target": [
