@@ -75,5 +75,11 @@ private:
     bool asyncEventInit_ = false;
 
     uint64_t observePropertyId_ = 0;
-    bool destroyed_ = false;
+    std::atomic<bool> destroyed_{false};
+
+    // Multi-instance guard
+    static std::atomic<int> instanceCount_;
+
+    // Shared cleanup called by Destroy() and ~MpvPlayer()
+    void destroyImpl();
 };

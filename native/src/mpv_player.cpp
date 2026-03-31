@@ -124,8 +124,9 @@ typedef void (*fn_mpv_set_wakeup_callback)(mpv_handle*, void(*)(void*), void*);
 typedef int (*fn_mpv_render_context_create)(mpv_render_context**, mpv_handle*, mpv_render_param*);
 typedef int (*fn_mpv_render_context_render)(mpv_render_context*, mpv_render_param*);
 typedef void (*fn_mpv_render_context_set_update_callback)(mpv_render_context*, mpv_render_update_fn, void*);
-typedef void (*fn_mpv_render_context_report_swap)(mpv_render_context*);
+typedef int (*fn_mpv_render_context_report_swap)(mpv_render_context*);
 typedef void (*fn_mpv_render_context_free)(mpv_render_context*);
+typedef uint64_t (*fn_mpv_render_context_update)(mpv_render_context*);
 typedef void (*fn_mpv_terminate_destroy)(mpv_handle*);
 
 struct MpvLib {
@@ -145,6 +146,7 @@ struct MpvLib {
     fn_mpv_render_context_render              render_context_render = nullptr;
     fn_mpv_render_context_set_update_callback render_context_set_update_callback = nullptr;
     fn_mpv_render_context_report_swap         render_context_report_swap = nullptr;
+    fn_mpv_render_context_update              render_context_update = nullptr;
     fn_mpv_render_context_free                render_context_free = nullptr;
     fn_mpv_terminate_destroy                  terminate_destroy = nullptr;
 
@@ -186,6 +188,7 @@ struct MpvLib {
         LOAD_MPV(render_context_render,              mpv_render_context_render)
         LOAD_MPV(render_context_set_update_callback, mpv_render_context_set_update_callback)
         LOAD_MPV(render_context_report_swap,         mpv_render_context_report_swap)
+        LOAD_MPV(render_context_update,              mpv_render_context_update)
         LOAD_MPV(render_context_free,                mpv_render_context_free)
         LOAD_MPV(terminate_destroy,                  mpv_terminate_destroy)
 
@@ -206,6 +209,9 @@ private:
 // Single global instance — only one libmpv can be loaded per process
 static MpvLib mpvLib_;
 
+// Multi-instance guard
+std::atomic<int> MpvPlayer::instanceCount_{0};
+
 // ---------------------------------------------------------------------------
 // Callback trampolines bridging mpv threads to libuv main thread
 // ---------------------------------------------------------------------------
@@ -220,7 +226,7 @@ void MpvPlayer::onMpvRenderUpdate(void* ctx) {
     // Called from mpv render thread — must not call mpv or GL APIs.
     // Signal main thread via uv_async.
     MpvPlayer* self = static_cast<MpvPlayer*>(ctx);
-    if (!self->destroyed_) {
+    if (!self->destroyed_.load(std::memory_order_acquire)) {
         uv_async_send(&self->asyncRender_);
     }
 }
@@ -228,21 +234,21 @@ void MpvPlayer::onMpvRenderUpdate(void* ctx) {
 void MpvPlayer::onMpvWakeup(void* ctx) {
     // Called from mpv core thread when new events are available.
     MpvPlayer* self = static_cast<MpvPlayer*>(ctx);
-    if (!self->destroyed_) {
+    if (!self->destroyed_.load(std::memory_order_acquire)) {
         uv_async_send(&self->asyncEvent_);
     }
 }
 
 void MpvPlayer::onAsyncRender(uv_async_t* handle) {
     MpvPlayer* self = static_cast<MpvPlayer*>(handle->data);
-    if (self && !self->destroyed_) {
+    if (self && !self->destroyed_.load()) {
         self->renderFrame();
     }
 }
 
 void MpvPlayer::onAsyncEvent(uv_async_t* handle) {
     MpvPlayer* self = static_cast<MpvPlayer*>(handle->data);
-    if (self && !self->destroyed_) {
+    if (self && !self->destroyed_.load()) {
         self->processEvents();
     }
 }
@@ -277,6 +283,13 @@ Napi::Object MpvPlayer::Init(Napi::Env env, Napi::Object exports) {
 MpvPlayer::MpvPlayer(const Napi::CallbackInfo& info)
     : Napi::ObjectWrap<MpvPlayer>(info) {
     Napi::Env env = info.Env();
+
+    // Multi-instance guard — only one MpvPlayer may exist at a time
+    if (instanceCount_.load() > 0) {
+        Napi::Error::New(env, "Only one MpvPlayer instance is allowed at a time")
+            .ThrowAsJavaScriptException();
+        return;
+    }
 
     if (info.Length() < 1 || !info[0].IsObject()) {
         Napi::TypeError::New(env, "Options object required: { libmpvPath: string }")
@@ -391,6 +404,10 @@ MpvPlayer::MpvPlayer(const Napi::CallbackInfo& info)
 
     // 9. Set wakeup callback for event processing
     mpvLib_.set_wakeup_callback(mpv_, onMpvWakeup, this);
+
+    // 10. Prevent GC from collecting this object while mpv callbacks hold raw `this`
+    instanceCount_.fetch_add(1);
+    this->Ref();
 }
 
 // ---------------------------------------------------------------------------
@@ -398,47 +415,7 @@ MpvPlayer::MpvPlayer(const Napi::CallbackInfo& info)
 // ---------------------------------------------------------------------------
 
 MpvPlayer::~MpvPlayer() {
-    if (!destroyed_) {
-        destroyed_ = true;
-
-        if (mpvRender_) {
-            mpvLib_.render_context_set_update_callback(mpvRender_, nullptr, nullptr);
-            mpvLib_.render_context_free(mpvRender_);
-            mpvRender_ = nullptr;
-        }
-
-        cleanupGlResources();
-
-        if (gl_) {
-            gl_->destroy();
-            delete gl_;
-            gl_ = nullptr;
-        }
-
-        if (mpv_) {
-            mpvLib_.terminate_destroy(mpv_);
-            mpv_ = nullptr;
-        }
-
-        if (asyncRenderInit_) {
-            uv_close(reinterpret_cast<uv_handle_t*>(&asyncRender_), nullptr);
-            asyncRenderInit_ = false;
-        }
-        if (asyncEventInit_) {
-            uv_close(reinterpret_cast<uv_handle_t*>(&asyncEvent_), nullptr);
-            asyncEventInit_ = false;
-        }
-
-        if (!tsfnFrame_.IsEmpty()) {
-            tsfnFrame_.Release();
-        }
-        if (!tsfnPropertyChange_.IsEmpty()) {
-            tsfnPropertyChange_.Release();
-        }
-        if (!tsfnEvent_.IsEmpty()) {
-            tsfnEvent_.Release();
-        }
-    }
+    destroyImpl();
 }
 
 // ---------------------------------------------------------------------------
@@ -508,9 +485,16 @@ void MpvPlayer::cleanupGlResources() {
 // ---------------------------------------------------------------------------
 
 void MpvPlayer::renderFrame() {
-    if (destroyed_ || !mpvRender_ || !gl_) return;
+    if (destroyed_.load() || !mpvRender_ || !gl_) return;
 
     gl_->makeCurrent();
+
+    // Check if mpv actually has a new frame to render
+    uint64_t flags = mpvLib_.render_context_update(mpvRender_);
+    if (!(flags & 1)) { // MPV_RENDER_UPDATE_FRAME = 1
+        gl_->doneCurrent();
+        return;
+    }
 
     // Check if video dimensions changed
     char* wStr = mpvLib_.get_property_string(mpv_, "width");
@@ -619,7 +603,7 @@ void MpvPlayer::renderFrame() {
 // ---------------------------------------------------------------------------
 
 void MpvPlayer::processEvents() {
-    if (destroyed_ || !mpv_) return;
+    if (destroyed_.load() || !mpv_) return;
 
     while (true) {
         mpv_event* event = mpvLib_.wait_event(mpv_, 0);
@@ -692,7 +676,7 @@ void MpvPlayer::processEvents() {
 
 Napi::Value MpvPlayer::LoadFile(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (destroyed_ || !mpv_) {
+    if (destroyed_.load() || !mpv_) {
         return env.Undefined();
     }
     if (info.Length() < 1 || !info[0].IsString()) {
@@ -709,7 +693,7 @@ Napi::Value MpvPlayer::LoadFile(const Napi::CallbackInfo& info) {
 
 Napi::Value MpvPlayer::Command(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (destroyed_ || !mpv_) return env.Undefined();
+    if (destroyed_.load() || !mpv_) return env.Undefined();
 
     std::vector<std::string> argStrings;
     std::vector<const char*> args;
@@ -730,7 +714,7 @@ Napi::Value MpvPlayer::Command(const Napi::CallbackInfo& info) {
 
 Napi::Value MpvPlayer::SetProperty(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (destroyed_ || !mpv_) return env.Undefined();
+    if (destroyed_.load() || !mpv_) return env.Undefined();
 
     if (info.Length() < 2 || !info[0].IsString() || !info[1].IsString()) {
         Napi::TypeError::New(env, "setProperty(name, value) requires two strings")
@@ -746,7 +730,7 @@ Napi::Value MpvPlayer::SetProperty(const Napi::CallbackInfo& info) {
 
 Napi::Value MpvPlayer::GetProperty(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (destroyed_ || !mpv_) return env.Null();
+    if (destroyed_.load() || !mpv_) return env.Null();
 
     if (info.Length() < 1 || !info[0].IsString()) {
         Napi::TypeError::New(env, "getProperty(name) requires a string")
@@ -765,7 +749,7 @@ Napi::Value MpvPlayer::GetProperty(const Napi::CallbackInfo& info) {
 
 Napi::Value MpvPlayer::ObserveProperty(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (destroyed_ || !mpv_) return env.Undefined();
+    if (destroyed_.load() || !mpv_) return env.Undefined();
 
     if (info.Length() < 1 || !info[0].IsString()) {
         Napi::TypeError::New(env, "observeProperty(name) requires a string")
@@ -826,21 +810,25 @@ Napi::Value MpvPlayer::GetFrameBuffer(const Napi::CallbackInfo& info) {
 
 Napi::Value MpvPlayer::ReportSwap(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (!destroyed_ && mpvRender_) {
+    if (!destroyed_.load() && mpvRender_) {
         mpvLib_.render_context_report_swap(mpvRender_);
     }
     return env.Undefined();
 }
 
 void MpvPlayer::Stop(const Napi::CallbackInfo& info) {
-    if (destroyed_ || !mpv_) return;
+    if (destroyed_.load() || !mpv_) return;
     const char* cmd[] = { "stop", nullptr };
     mpvLib_.command_async(mpv_, 0, cmd);
 }
 
 void MpvPlayer::Destroy(const Napi::CallbackInfo& info) {
-    if (destroyed_) return;
-    destroyed_ = true;
+    destroyImpl();
+}
+
+void MpvPlayer::destroyImpl() {
+    if (destroyed_.load()) return;
+    destroyed_.store(true, std::memory_order_release);
 
     // Disconnect callbacks first
     if (mpvRender_) {
@@ -900,6 +888,10 @@ void MpvPlayer::Destroy(const Napi::CallbackInfo& info) {
     sabData_ = nullptr;
     sabSize_ = 0;
     frameIndex_ = nullptr;
+
+    // Decrement instance count and release GC prevent ref
+    instanceCount_.fetch_sub(1);
+    this->Unref();
 }
 
 // ---------------------------------------------------------------------------
