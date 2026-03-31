@@ -20,6 +20,7 @@ import { setupWindowControls } from "./controllers/windowController";
 import { setupUpdater } from "./controllers/updaterController";
 import { setupWindowTransparency } from "./controllers/transparencyController";
 import { gpuController } from "./controllers/gpuController";
+import MpvController from './core/MpvController';
 
 app.setName("stremio-enhanced");
 const userDataPath = app.getPath('userData');
@@ -91,7 +92,8 @@ async function createWindow() {
     
     mainWindow.setMenu(null);
     mainWindow.loadURL(URLS.STREMIO_WEB);
-    
+    MpvController.init(mainWindow);
+
     helpers.setMainWindow(mainWindow);
     
     if (transparencyEnabled) {
@@ -317,6 +319,7 @@ app.on("window-all-closed", () => {
     logger.info("Closing app...");
     
     if (process.platform !== "darwin") {
+        MpvController.destroy();
         app.quit();
     }
 });
