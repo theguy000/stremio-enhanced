@@ -91,6 +91,15 @@ async function createWindow() {
     });
     
     mainWindow.setMenu(null);
+
+    // Enable Cross-Origin Isolation for SharedArrayBuffer support (MPV frame transport)
+    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+        const headers = details.responseHeaders ?? {};
+        headers['Cross-Origin-Opener-Policy'] = ['same-origin'];
+        headers['Cross-Origin-Embedder-Policy'] = ['credentialless'];
+        callback({ responseHeaders: headers });
+    });
+
     mainWindow.loadURL(URLS.STREMIO_WEB);
     MpvController.init(mainWindow);
 
