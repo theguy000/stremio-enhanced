@@ -2,11 +2,13 @@ import { app, ipcMain, BrowserWindow } from 'electron';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { MPV_IPC } from '../constants';
-import logger from '../utils/logger';
+import { getLogger } from '../utils/logger';
+
+const logger = getLogger('MpvController');
 
 class MpvController {
     private player: any = null;
-    private sab: SharedArrayBuffer | null = null;
+    private frameBuffer: ArrayBuffer | null = null;
     private ipcRegistered = false;
     public available = false;
 
@@ -52,15 +54,31 @@ class MpvController {
 
     private setupCallbacks(mainWindow: BrowserWindow) {
         this.player.onFrame = (width: number, height: number) => {
-            if (!this.sab) {
-                this.sab = this.player.getFrameBuffer(3840, 2160);
-                mainWindow.webContents.send(MPV_IPC.INIT_SAB, this.sab);
+            if (!this.frameBuffer) {
+                // First frame callback — allocate the backing buffer for PBO readback.
+                // No pixel data yet; the next renderFrame will fill it.
+                this.frameBuffer = this.player.getFrameBuffer(3840, 2160);
+                return;
             }
-            mainWindow.webContents.send(MPV_IPC.FRAME_READY, { width, height });
+
+            // Read the current frame slot from the local buffer and send pixels via IPC
+            const HEADER_SIZE = 16;
+            const headerView = new Int32Array(this.frameBuffer!, 0, 4);
+            const slotIndex = headerView[0];
+            if (slotIndex < 0 || slotIndex > 2) return; // invalid slot
+
+            const frameSize = width * height * 4;
+            const slotOffset = HEADER_SIZE + slotIndex * frameSize;
+
+            // Copy the pixels so IPC sends a snapshot (Buffer.from creates a view)
+            const pixels = Buffer.allocUnsafe(frameSize);
+            Buffer.from(this.frameBuffer!, slotOffset, frameSize).copy(pixels);
+
+            mainWindow.webContents.send(MPV_IPC.FRAME_READY, { width, height, data: pixels });
         };
 
-        this.player.onPropertyChange = (name: string, value: any) => {
-            mainWindow.webContents.send(MPV_IPC.PROPERTY_CHANGE, { name, value });
+        this.player.onPropertyChange = (data: { name: string; value: any }) => {
+            mainWindow.webContents.send(MPV_IPC.PROPERTY_CHANGE, data);
         };
 
         this.player.onEvent = (event: string) => {

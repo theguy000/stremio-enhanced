@@ -16,6 +16,9 @@ class MpvInterceptor {
     init() {
         ipcRenderer.on(MPV_IPC.AVAILABLE, (_, available: boolean) => {
             this.mpvAvailable = available;
+            // Push to page context via script injection (CustomEvent.detail
+            // doesn't cross context isolation from preload to page)
+            mpvBridge.notifyAvailable(available);
             logger.info('MPV available: ' + available);
         });
 
@@ -34,49 +37,87 @@ class MpvInterceptor {
         }
     }
 
+    private hideVideo(video: HTMLVideoElement) {
+        video.style.opacity = '0';
+        video.style.pointerEvents = 'none';
+        video.style.position = 'absolute';
+        video.style.width = '0';
+        video.style.height = '0';
+    }
+
+    private showVideo(video: HTMLVideoElement) {
+        video.style.opacity = '';
+        video.style.pointerEvents = '';
+        video.style.position = '';
+        video.style.width = '';
+        video.style.height = '';
+    }
+
     private async activateMpv() {
         try {
             await Helpers.waitForElm('video');
             const video = document.querySelector('video') as HTMLVideoElement;
             if (!video) return;
 
-            const playerState = await PlaybackState.getPlayerState();
-            if (!playerState?.stream?.content?.url) {
+            // 1. Get stream URL — check stashed src (captured by page-context patches)
+            let streamUrl = mpvBridge.getLastStashedSrc();
+            if (!streamUrl) {
+                const playerState = await PlaybackState.getPlayerState();
+                if (playerState?.stream?.content?.url) {
+                    streamUrl = playerState.stream.content.url;
+                }
+            }
+            if (!streamUrl) {
                 logger.warn('No stream URL found, falling back to HTML5');
                 return;
             }
-            const streamUrl = playerState.stream.content.url;
 
-            video.style.display = 'none';
-            video.pause();
+            // 2. Activate bridge (IPC listeners, seekbar, push state to page)
+            mpvBridge.activate(video);
+            mpvBridge.setCapturedSrc(streamUrl);
+
+            // 3. Create canvas overlay
+            const parent = video.parentElement;
+            if (!parent) return;
+
+            const parentPos = getComputedStyle(parent).position;
+            if (parentPos === 'static') {
+                parent.style.position = 'relative';
+            }
+
+            this.hideVideo(video);
 
             const canvas = document.createElement('canvas');
             canvas.id = 'mpv-canvas';
-            canvas.style.cssText = video.style.cssText;
-            canvas.style.display = 'block';
+            canvas.style.position = 'absolute';
+            canvas.style.top = '0';
+            canvas.style.left = '0';
             canvas.style.width = '100%';
             canvas.style.height = '100%';
-            canvas.style.objectFit = 'contain';
             canvas.style.backgroundColor = '#000';
 
-            video.parentElement?.appendChild(canvas);
+            // Insert right after video — subtitles/controls that come later
+            // in the DOM will naturally stack on top of the canvas
+            video.after(canvas);
             mpvCanvas.setCanvas(canvas);
 
+            // 4. Guard against React re-creating video elements
             this.observer = new MutationObserver((mutations) => {
                 for (const mutation of mutations) {
                     for (const node of mutation.addedNodes) {
                         if (node instanceof HTMLVideoElement) {
-                            node.style.display = 'none';
-                            node.pause();
+                            this.hideVideo(node);
+                            mpvBridge.updateVideoRef(node);
+                            mpvBridge.redispatchReadiness();
                         }
                     }
                 }
             });
-            this.observer.observe(document.body, { childList: true, subtree: true });
+            this.observer.observe(parent, { childList: true, subtree: true });
 
+            // 5. Tell MPV to load the file
             ipcRenderer.send(MPV_IPC.LOAD_FILE, streamUrl);
             this.active = true;
-            mpvBridge.activate();
             logger.info('MPV activated for: ' + streamUrl);
         } catch (err) {
             logger.error('Failed to activate MPV: ' + err);
@@ -90,13 +131,15 @@ class MpvInterceptor {
         if (canvas) canvas.remove();
         mpvCanvas.removeCanvas();
 
+        mpvBridge.deactivate();
+
+        // Restore video element visibility
         const video = document.querySelector('video') as HTMLVideoElement;
-        if (video) video.style.display = '';
+        if (video) this.showVideo(video);
 
         this.observer?.disconnect();
         this.observer = null;
 
-        mpvBridge.deactivate();
         this.active = false;
         logger.info('MPV deactivated');
     }

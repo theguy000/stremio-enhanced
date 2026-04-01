@@ -1,3 +1,6 @@
+// MUST be first — installs prototype patches before page JS runs
+import './ui/mpvProtoPatch';
+
 import { contextBridge, ipcRenderer } from "electron";
 import Updater from "../core/Updater";
 import DiscordPresence from "../core/DiscordPresence";

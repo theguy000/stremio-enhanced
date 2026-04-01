@@ -61,8 +61,6 @@ private:
     size_t sabSize_ = 0;
     static constexpr int HEADER_SIZE = 16; // 4 int32s for atomics
     std::atomic<int>* frameIndex_ = nullptr; // points into SAB header
-    int sabWidth_ = 0;
-    int sabHeight_ = 0;
 
     // Threadsafe callbacks
     Napi::ThreadSafeFunction tsfnFrame_;

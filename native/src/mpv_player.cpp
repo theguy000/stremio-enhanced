@@ -154,8 +154,12 @@ struct MpvLib {
 
     bool load(const std::string& path) {
 #ifdef _WIN32
-        // Extract directory so dependent DLLs in the same folder are found
-        std::wstring wpath(path.begin(), path.end());
+        // Proper UTF-8 to UTF-16 conversion for non-ASCII paths
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+        if (wlen <= 0) return false;
+        std::wstring wpath(wlen - 1, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wpath[0], wlen);
+
         auto lastSlash = wpath.find_last_of(L"\\/");
         if (lastSlash != std::wstring::npos) {
             std::wstring dir = wpath.substr(0, lastSlash);
@@ -496,24 +500,7 @@ void MpvPlayer::renderFrame() {
         return;
     }
 
-    // Check if video dimensions changed
-    char* wStr = mpvLib_.get_property_string(mpv_, "width");
-    char* hStr = mpvLib_.get_property_string(mpv_, "height");
-    int newW = wStr ? atoi(wStr) : 0;
-    int newH = hStr ? atoi(hStr) : 0;
-    if (wStr) mpvLib_.free(wStr);
-    if (hStr) mpvLib_.free(hStr);
-
-    // Clamp to max 3840x2160
-    if (newW > 3840) newW = 3840;
-    if (newH > 2160) newH = 2160;
-
-    // If we have valid dimensions and they changed, recreate FBO
-    if (newW > 0 && newH > 0 && (newW != videoWidth_ || newH != videoHeight_)) {
-        setupFbo(newW, newH);
-    }
-
-    // Need valid FBO to proceed
+    // Need valid FBO to proceed (dimensions set by VIDEO_RECONFIG handler)
     if (!fbo_ || videoWidth_ <= 0 || videoHeight_ <= 0) {
         gl_->doneCurrent();
         return;
@@ -526,7 +513,7 @@ void MpvPlayer::renderFrame() {
     fboParam.h = videoHeight_;
     fboParam.internal_format = SE_GL_RGBA8;
 
-    int flipY = 1;
+    int flipY = 0;
     int blockTarget = 0; // don't block — we drive timing
 
     mpv_render_param params[] = {
@@ -538,7 +525,7 @@ void MpvPlayer::renderFrame() {
 
     mpvLib_.render_context_render(mpvRender_, params);
 
-    // PBO async readback if SAB is set up
+    // PBO async readback if buffer is set up
     if (sabData_ && sabSize_ > 0) {
         size_t frameBytes = (size_t)videoWidth_ * videoHeight_ * 4;
         int totalSlots = 3;
@@ -548,7 +535,7 @@ void MpvPlayer::renderFrame() {
         glBindBuffer_(SE_GL_PIXEL_PACK_BUFFER, pbos_[currentPbo_]);
         glReadPixels_(0, 0, videoWidth_, videoHeight_, SE_GL_RGBA, SE_GL_UNSIGNED_BYTE, nullptr);
 
-        // Map the *previous* PBO (which was filled last frame) and copy to SAB
+        // Map the *previous* PBO (which was filled last frame) and copy to buffer
         int prevPbo = 1 - currentPbo_;
         glBindBuffer_(SE_GL_PIXEL_PACK_BUFFER, pbos_[prevPbo]);
         void* mapped = glMapBuffer_(SE_GL_PIXEL_PACK_BUFFER, SE_GL_READ_ONLY);
@@ -566,7 +553,7 @@ void MpvPlayer::renderFrame() {
                     frameIndex_->store(writeSlot, std::memory_order_release);
                 }
 
-                // Store width and height in the SAB header (int32 slots 1 and 2)
+                // Store width and height in the buffer header (int32 slots 1 and 2)
                 int32_t* header = reinterpret_cast<int32_t*>(sabData_);
                 // header[0] = frameIndex (handled by atomic above)
                 header[1] = videoWidth_;
@@ -581,18 +568,18 @@ void MpvPlayer::renderFrame() {
 
         // Swap PBO index
         currentPbo_ = prevPbo;
+    }
 
-        // Notify JS of new frame
-        if (hasTsfnFrame_) {
-            int w = videoWidth_;
-            int h = videoHeight_;
-            tsfnFrame_.NonBlockingCall([w, h](Napi::Env env, Napi::Function callback) {
-                callback.Call({
-                    Napi::Number::New(env, w),
-                    Napi::Number::New(env, h)
-                });
+    // Notify JS of new frame (outside buffer check so first callback can set up the buffer)
+    if (hasTsfnFrame_) {
+        int w = videoWidth_;
+        int h = videoHeight_;
+        tsfnFrame_.NonBlockingCall([w, h](Napi::Env env, Napi::Function callback) {
+            callback.Call({
+                Napi::Number::New(env, w),
+                Napi::Number::New(env, h)
             });
-        }
+        });
     }
 
     gl_->doneCurrent();
@@ -630,7 +617,20 @@ void MpvPlayer::processEvents() {
             }
 
             case MPV_EVENT_VIDEO_RECONFIG: {
-                // Video dimensions may have changed — next renderFrame will pick it up
+                // Query and cache video dimensions on reconfig instead of per-frame
+                char* wStr = mpvLib_.get_property_string(mpv_, "width");
+                char* hStr = mpvLib_.get_property_string(mpv_, "height");
+                int newW = wStr ? atoi(wStr) : 0;
+                int newH = hStr ? atoi(hStr) : 0;
+                if (wStr) mpvLib_.free(wStr);
+                if (hStr) mpvLib_.free(hStr);
+                if (newW > 3840) newW = 3840;
+                if (newH > 2160) newH = 2160;
+                if (newW > 0 && newH > 0 && (newW != videoWidth_ || newH != videoHeight_)) {
+                    gl_->makeCurrent();
+                    setupFbo(newW, newH);
+                    gl_->doneCurrent();
+                }
                 break;
             }
 
@@ -795,15 +795,12 @@ Napi::Value MpvPlayer::GetFrameBuffer(const Napi::CallbackInfo& info) {
     sabRef_ = Napi::Persistent(sab);
     sabData_ = static_cast<uint8_t*>(sab.Data());
     sabSize_ = totalSize;
-    sabWidth_ = width;
-    sabHeight_ = height;
 
     // Initialize header to zero
     memset(sabData_, 0, HEADER_SIZE);
 
     // Set up frameIndex_ atomic at byte 0 of SAB header, initialize to -1
-    frameIndex_ = reinterpret_cast<std::atomic<int>*>(sabData_);
-    frameIndex_->store(-1, std::memory_order_release);
+    frameIndex_ = new (sabData_) std::atomic<int>(-1);
 
     return sab;
 }
@@ -894,6 +891,7 @@ void MpvPlayer::destroyImpl() {
 
     // Decrement instance count and release GC prevent ref
     instanceCount_.fetch_sub(1);
+    glFunctionsLoaded = false;
     this->Unref();
 }
 

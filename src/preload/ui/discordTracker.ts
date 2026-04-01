@@ -4,7 +4,8 @@ import DiscordPresence from "../../core/DiscordPresence";
 import { mpvBridge } from './mpvBridge';
 
 export const discordTracker = {
-    
+    _mpvPresenceInterval: null as ReturnType<typeof setInterval> | null,
+
     init: () => {
         window.addEventListener('hashchange', discordTracker.handleNavigation);
         discordTracker.handleNavigation();
@@ -45,7 +46,7 @@ export const discordTracker = {
                     } else if (metaDetails.type === "movie") {
                         DiscordPresence.setPaused(metaDetails.name, `Paused at ${formattedTime}`, metaDetails.poster);
                     }
-                } else {
+                } else if (timing.duration > 0) {
                     const startTimestamp = Math.floor(Date.now() / 1000) - Math.floor(timing.currentTime);
                     const endTimestamp = startTimestamp + Math.floor(timing.duration);
 
@@ -61,7 +62,15 @@ export const discordTracker = {
             };
 
             updatePresence();
-            setInterval(updatePresence, 5000);
+            if (discordTracker._mpvPresenceInterval) clearInterval(discordTracker._mpvPresenceInterval);
+            discordTracker._mpvPresenceInterval = setInterval(() => {
+                if (!mpvBridge.isActive()) {
+                    clearInterval(discordTracker._mpvPresenceInterval!);
+                    discordTracker._mpvPresenceInterval = null;
+                    return;
+                }
+                updatePresence();
+            }, 5000);
             return;
         }
 
