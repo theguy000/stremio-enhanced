@@ -583,7 +583,7 @@ void MpvPlayer::renderFrame() {
         currentPbo_ = prevPbo;
 
         // Notify JS of new frame
-        if (!tsfnFrame_.IsEmpty()) {
+        if (hasTsfnFrame_) {
             int w = videoWidth_;
             int h = videoHeight_;
             tsfnFrame_.NonBlockingCall([w, h](Napi::Env env, Napi::Function callback) {
@@ -612,7 +612,7 @@ void MpvPlayer::processEvents() {
         switch (event->event_id) {
             case MPV_EVENT_PROPERTY_CHANGE: {
                 mpv_event_property* prop = static_cast<mpv_event_property*>(event->data);
-                if (prop && !tsfnPropertyChange_.IsEmpty()) {
+                if (prop && hasTsfnPropertyChange_) {
                     std::string name = prop->name ? prop->name : "";
                     std::string value;
                     if (prop->format == MPV_FORMAT_STRING && prop->data) {
@@ -635,7 +635,7 @@ void MpvPlayer::processEvents() {
             }
 
             case MPV_EVENT_END_FILE: {
-                if (!tsfnEvent_.IsEmpty()) {
+                if (hasTsfnEvent_) {
                     tsfnEvent_.NonBlockingCall(
                         [](Napi::Env env, Napi::Function callback) {
                             callback.Call({ Napi::String::New(env, "end-file") });
@@ -645,7 +645,7 @@ void MpvPlayer::processEvents() {
             }
 
             case MPV_EVENT_FILE_LOADED: {
-                if (!tsfnEvent_.IsEmpty()) {
+                if (hasTsfnEvent_) {
                     tsfnEvent_.NonBlockingCall(
                         [](Napi::Env env, Napi::Function callback) {
                             callback.Call({ Napi::String::New(env, "file-loaded") });
@@ -655,7 +655,7 @@ void MpvPlayer::processEvents() {
             }
 
             case MPV_EVENT_SHUTDOWN: {
-                if (!tsfnEvent_.IsEmpty()) {
+                if (hasTsfnEvent_) {
                     tsfnEvent_.NonBlockingCall(
                         [](Napi::Env env, Napi::Function callback) {
                             callback.Call({ Napi::String::New(env, "shutdown") });
@@ -873,14 +873,17 @@ void MpvPlayer::destroyImpl() {
     }
 
     // Release ThreadSafeFunctions
-    if (!tsfnFrame_.IsEmpty()) {
+    if (hasTsfnFrame_) {
         tsfnFrame_.Release();
+        hasTsfnFrame_ = false;
     }
-    if (!tsfnPropertyChange_.IsEmpty()) {
+    if (hasTsfnPropertyChange_) {
         tsfnPropertyChange_.Release();
+        hasTsfnPropertyChange_ = false;
     }
-    if (!tsfnEvent_.IsEmpty()) {
+    if (hasTsfnEvent_) {
         tsfnEvent_.Release();
+        hasTsfnEvent_ = false;
     }
 
     // Release SAB reference
@@ -900,8 +903,9 @@ void MpvPlayer::destroyImpl() {
 
 void MpvPlayer::SetOnFrame(const Napi::CallbackInfo& info, const Napi::Value& value) {
     Napi::Env env = info.Env();
-    if (!tsfnFrame_.IsEmpty()) {
+    if (hasTsfnFrame_) {
         tsfnFrame_.Release();
+        hasTsfnFrame_ = false;
     }
     if (value.IsFunction()) {
         tsfnFrame_ = Napi::ThreadSafeFunction::New(
@@ -911,13 +915,15 @@ void MpvPlayer::SetOnFrame(const Napi::CallbackInfo& info, const Napi::Value& va
             0,  // unlimited queue
             1   // initial thread count
         );
+        hasTsfnFrame_ = true;
     }
 }
 
 void MpvPlayer::SetOnPropertyChange(const Napi::CallbackInfo& info, const Napi::Value& value) {
     Napi::Env env = info.Env();
-    if (!tsfnPropertyChange_.IsEmpty()) {
+    if (hasTsfnPropertyChange_) {
         tsfnPropertyChange_.Release();
+        hasTsfnPropertyChange_ = false;
     }
     if (value.IsFunction()) {
         tsfnPropertyChange_ = Napi::ThreadSafeFunction::New(
@@ -927,13 +933,15 @@ void MpvPlayer::SetOnPropertyChange(const Napi::CallbackInfo& info, const Napi::
             0,
             1
         );
+        hasTsfnPropertyChange_ = true;
     }
 }
 
 void MpvPlayer::SetOnEvent(const Napi::CallbackInfo& info, const Napi::Value& value) {
     Napi::Env env = info.Env();
-    if (!tsfnEvent_.IsEmpty()) {
+    if (hasTsfnEvent_) {
         tsfnEvent_.Release();
+        hasTsfnEvent_ = false;
     }
     if (value.IsFunction()) {
         tsfnEvent_ = Napi::ThreadSafeFunction::New(
@@ -943,6 +951,7 @@ void MpvPlayer::SetOnEvent(const Napi::CallbackInfo& info, const Napi::Value& va
             0,
             1
         );
+        hasTsfnEvent_ = true;
     }
 }
 

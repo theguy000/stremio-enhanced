@@ -6,7 +6,7 @@
     ],
     "include_dirs": [
       "<!@(node -p \"require('node-addon-api').include\")",
-      "deps/mpv",
+      "deps",
       "deps/<(OS)-<(target_arch)"
     ],
     "defines": ["NAPI_VERSION=8", "NAPI_DISABLE_CPP_EXCEPTIONS"],

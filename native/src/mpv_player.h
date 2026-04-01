@@ -1,5 +1,6 @@
 #pragma once
 #include <napi.h>
+#include <uv.h>
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
 #include "gl_context.h"
@@ -67,6 +68,9 @@ private:
     Napi::ThreadSafeFunction tsfnFrame_;
     Napi::ThreadSafeFunction tsfnPropertyChange_;
     Napi::ThreadSafeFunction tsfnEvent_;
+    bool hasTsfnFrame_ = false;
+    bool hasTsfnPropertyChange_ = false;
+    bool hasTsfnEvent_ = false;
 
     // Async handles for libuv
     uv_async_t asyncRender_;
