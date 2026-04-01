@@ -268,7 +268,7 @@ Napi::Object MpvPlayer::Init(Napi::Env env, Napi::Object exports) {
         InstanceMethod("setProperty", &MpvPlayer::SetProperty),
         InstanceMethod("getProperty", &MpvPlayer::GetProperty),
         InstanceMethod("observeProperty", &MpvPlayer::ObserveProperty),
-        InstanceMethod("getFrameBuffer", &MpvPlayer::GetFrameBuffer),
+        InstanceMethod("setFrameBuffer", &MpvPlayer::SetFrameBuffer),
         InstanceMethod("reportSwap", &MpvPlayer::ReportSwap),
         InstanceMethod("stop", &MpvPlayer::Stop),
         InstanceMethod("destroy", &MpvPlayer::Destroy),
@@ -528,6 +528,7 @@ void MpvPlayer::renderFrame() {
     // PBO async readback if buffer is set up
     if (sabData_ && sabSize_ > 0) {
         size_t frameBytes = (size_t)videoWidth_ * videoHeight_ * 4;
+        static constexpr size_t MAX_FRAME_BYTES = 3840ULL * 2160 * 4;
         int totalSlots = 3;
 
         // Initiate async read from FBO into current PBO
@@ -543,7 +544,7 @@ void MpvPlayer::renderFrame() {
             // Determine which triple-buffer slot to write to
             int currentIdx = frameIndex_ ? frameIndex_->load(std::memory_order_acquire) : 0;
             int writeSlot = (currentIdx + 1) % totalSlots;
-            size_t offset = HEADER_SIZE + writeSlot * frameBytes;
+            size_t offset = HEADER_SIZE + writeSlot * MAX_FRAME_BYTES;
 
             if (offset + frameBytes <= sabSize_) {
                 memcpy(sabData_ + offset, mapped, frameBytes);
@@ -551,6 +552,11 @@ void MpvPlayer::renderFrame() {
                 // Atomically publish the new frame slot index
                 if (frameIndex_) {
                     frameIndex_->store(writeSlot, std::memory_order_release);
+                }
+
+                // Report frame swap to mpv's timing model (eliminates IPC round-trip)
+                if (mpvRender_) {
+                    mpvLib_.render_context_report_swap(mpvRender_);
                 }
 
                 // Store width and height in the buffer header (int32 slots 1 and 2)
@@ -763,46 +769,33 @@ Napi::Value MpvPlayer::ObserveProperty(const Napi::CallbackInfo& info) {
     return Napi::Number::New(env, err);
 }
 
-Napi::Value MpvPlayer::GetFrameBuffer(const Napi::CallbackInfo& info) {
+void MpvPlayer::SetFrameBuffer(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
-    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
-        Napi::TypeError::New(env, "getFrameBuffer(width, height) requires two numbers")
+    // Verify atomic<int> layout matches JS Int32Array for cross-language SAB interop
+    static_assert(sizeof(std::atomic<int>) == sizeof(int32_t),
+                  "atomic<int> layout must match Int32Array");
+    static_assert(std::atomic<int>::is_always_lock_free,
+                  "atomic<int> must be lock-free for SAB interop");
+
+    if (info.Length() < 1 || !info[0].IsTypedArray()) {
+        Napi::TypeError::New(env, "setFrameBuffer(view) requires a Uint8Array view")
             .ThrowAsJavaScriptException();
-        return env.Undefined();
+        return;
     }
 
-    int width = info[0].As<Napi::Number>().Int32Value();
-    int height = info[1].As<Napi::Number>().Int32Value();
+    // Extract the backing ArrayBuffer (which is actually a SharedArrayBuffer on the JS side)
+    Napi::Uint8Array view = info[0].As<Napi::Uint8Array>();
+    Napi::ArrayBuffer ab = view.ArrayBuffer();
 
-    // Clamp to max 3840x2160
-    if (width <= 0 || height <= 0) {
-        Napi::Error::New(env, "width and height must be positive")
-            .ThrowAsJavaScriptException();
-        return env.Undefined();
-    }
-    if (width > 3840) width = 3840;
-    if (height > 2160) height = 2160;
-
-    // Calculate size: HEADER_SIZE + 3 slots * width * height * 4 (RGBA)
-    size_t frameBytes = (size_t)width * height * 4;
-    size_t totalSize = HEADER_SIZE + 3 * frameBytes;
-
-    // Create SharedArrayBuffer
-    Napi::ArrayBuffer sab = Napi::ArrayBuffer::New(env, totalSize);
-
-    // Store reference
-    sabRef_ = Napi::Persistent(sab);
-    sabData_ = static_cast<uint8_t*>(sab.Data());
-    sabSize_ = totalSize;
+    sabData_ = static_cast<uint8_t*>(ab.Data());
+    sabSize_ = ab.ByteLength();
 
     // Initialize header to zero
     memset(sabData_, 0, HEADER_SIZE);
 
     // Set up frameIndex_ atomic at byte 0 of SAB header, initialize to -1
     frameIndex_ = new (sabData_) std::atomic<int>(-1);
-
-    return sab;
 }
 
 Napi::Value MpvPlayer::ReportSwap(const Napi::CallbackInfo& info) {
@@ -883,8 +876,7 @@ void MpvPlayer::destroyImpl() {
         hasTsfnEvent_ = false;
     }
 
-    // Release SAB reference
-    sabRef_.Reset();
+    // Release SAB pointers (buffer is owned by JS)
     sabData_ = nullptr;
     sabSize_ = 0;
     frameIndex_ = nullptr;

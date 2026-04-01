@@ -21,7 +21,7 @@ private:
     Napi::Value SetProperty(const Napi::CallbackInfo& info);
     Napi::Value GetProperty(const Napi::CallbackInfo& info);
     Napi::Value ObserveProperty(const Napi::CallbackInfo& info);
-    Napi::Value GetFrameBuffer(const Napi::CallbackInfo& info);
+    void SetFrameBuffer(const Napi::CallbackInfo& info);
     Napi::Value ReportSwap(const Napi::CallbackInfo& info);
     void Stop(const Napi::CallbackInfo& info);
     void Destroy(const Napi::CallbackInfo& info);
@@ -56,7 +56,6 @@ private:
     int currentPbo_ = 0;
 
     // Triple-buffer SAB
-    Napi::Reference<Napi::ArrayBuffer> sabRef_;
     uint8_t* sabData_ = nullptr;
     size_t sabSize_ = 0;
     static constexpr int HEADER_SIZE = 16; // 4 int32s for atomics
