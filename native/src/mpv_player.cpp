@@ -556,12 +556,6 @@ void MpvPlayer::renderFrame() {
                 if (mpvRender_) {
                     mpvLib_.render_context_report_swap(mpvRender_);
                 }
-
-                // Store width and height in the buffer header (int32 slots 1 and 2)
-                int32_t* header = reinterpret_cast<int32_t*>(sabData_);
-                // header[0] = frameIndex (handled by atomic above)
-                header[1] = videoWidth_;
-                header[2] = videoHeight_;
             }
 
             glUnmapBuffer_(SE_GL_PIXEL_PACK_BUFFER);

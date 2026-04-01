@@ -63,6 +63,7 @@ class MpvCanvas {
 
         const frameBytes = width * height * 4;
         const slotOffset = HEADER_SIZE + slotIndex * this.maxFrameBytes;
+        if (slotOffset + frameBytes > this.sabView.buffer.byteLength) return;
 
         if (this.canvas.width !== width || this.canvas.height !== height) {
             this.canvas.width = width;
