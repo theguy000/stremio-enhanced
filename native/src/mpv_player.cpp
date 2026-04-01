@@ -269,7 +269,6 @@ Napi::Object MpvPlayer::Init(Napi::Env env, Napi::Object exports) {
         InstanceMethod("getProperty", &MpvPlayer::GetProperty),
         InstanceMethod("observeProperty", &MpvPlayer::ObserveProperty),
         InstanceMethod("setFrameBuffer", &MpvPlayer::SetFrameBuffer),
-        InstanceMethod("reportSwap", &MpvPlayer::ReportSwap),
         InstanceMethod("stop", &MpvPlayer::Stop),
         InstanceMethod("destroy", &MpvPlayer::Destroy),
         InstanceAccessor("onFrame", nullptr, &MpvPlayer::SetOnFrame),
@@ -528,7 +527,6 @@ void MpvPlayer::renderFrame() {
     // PBO async readback if buffer is set up
     if (sabData_ && sabSize_ > 0) {
         size_t frameBytes = (size_t)videoWidth_ * videoHeight_ * 4;
-        static constexpr size_t MAX_FRAME_BYTES = 3840ULL * 2160 * 4;
         int totalSlots = 3;
 
         // Initiate async read from FBO into current PBO
@@ -791,19 +789,23 @@ void MpvPlayer::SetFrameBuffer(const Napi::CallbackInfo& info) {
     sabData_ = static_cast<uint8_t*>(ab.Data());
     sabSize_ = ab.ByteLength();
 
+    if (sabSize_ < HEADER_SIZE) {
+        Napi::Error::New(env, "Buffer too small (minimum HEADER_SIZE bytes)")
+            .ThrowAsJavaScriptException();
+        sabData_ = nullptr;
+        sabSize_ = 0;
+        return;
+    }
+
+    // Prevent GC from reclaiming the buffer while C++ holds a raw pointer
+    sabRef_.Reset();
+    sabRef_ = Napi::Persistent(ab);
+
     // Initialize header to zero
     memset(sabData_, 0, HEADER_SIZE);
 
     // Set up frameIndex_ atomic at byte 0 of SAB header, initialize to -1
     frameIndex_ = new (sabData_) std::atomic<int>(-1);
-}
-
-Napi::Value MpvPlayer::ReportSwap(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
-    if (!destroyed_.load() && mpvRender_) {
-        mpvLib_.render_context_report_swap(mpvRender_);
-    }
-    return env.Undefined();
 }
 
 void MpvPlayer::Stop(const Napi::CallbackInfo& info) {
@@ -877,6 +879,7 @@ void MpvPlayer::destroyImpl() {
     }
 
     // Release SAB pointers (buffer is owned by JS)
+    sabRef_.Reset();
     sabData_ = nullptr;
     sabSize_ = 0;
     frameIndex_ = nullptr;
