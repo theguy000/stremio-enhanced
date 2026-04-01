@@ -8,7 +8,7 @@ const logger = getLogger('MpvController');
 
 class MpvController {
     private player: any = null;
-    private frameBuffer: ArrayBuffer | null = null;
+    private sabInitialized = false;
     private ipcRegistered = false;
     public available = false;
 
@@ -54,27 +54,11 @@ class MpvController {
 
     private setupCallbacks(mainWindow: BrowserWindow) {
         this.player.onFrame = (width: number, height: number) => {
-            if (!this.frameBuffer) {
-                // First frame callback — allocate the backing buffer for PBO readback.
-                // No pixel data yet; the next renderFrame will fill it.
-                this.frameBuffer = this.player.getFrameBuffer(3840, 2160);
-                return;
+            if (!this.sabInitialized) {
+                this.initSharedBuffer(mainWindow);
             }
-
-            // Read the current frame slot from the local buffer and send pixels via IPC
-            const HEADER_SIZE = 16;
-            const headerView = new Int32Array(this.frameBuffer!, 0, 4);
-            const slotIndex = headerView[0];
-            if (slotIndex < 0 || slotIndex > 2) return; // invalid slot
-
-            const frameSize = width * height * 4;
-            const slotOffset = HEADER_SIZE + slotIndex * frameSize;
-
-            // Copy the pixels so IPC sends a snapshot (Buffer.from creates a view)
-            const pixels = Buffer.allocUnsafe(frameSize);
-            Buffer.from(this.frameBuffer!, slotOffset, frameSize).copy(pixels);
-
-            mainWindow.webContents.send(MPV_IPC.FRAME_READY, { width, height, data: pixels });
+            // Lightweight signal — pixels are already in the SAB (written by C++ PBO readback)
+            mainWindow.webContents.send(MPV_IPC.FRAME_READY, { width, height });
         };
 
         this.player.onPropertyChange = (data: { name: string; value: any }) => {
@@ -84,6 +68,27 @@ class MpvController {
         this.player.onEvent = (event: string) => {
             mainWindow.webContents.send(MPV_IPC.EVENT, event);
         };
+    }
+
+    private initSharedBuffer(mainWindow: BrowserWindow) {
+        // Triple-buffer for up to 4K RGBA: header(16) + 3 * (3840*2160*4)
+        const MAX_W = 3840;
+        const MAX_H = 2160;
+        const HEADER_SIZE = 16;
+        const frameBytes = MAX_W * MAX_H * 4;
+        const totalSize = HEADER_SIZE + 3 * frameBytes;
+
+        const sab = new SharedArrayBuffer(totalSize);
+        const view = new Uint8Array(sab);
+
+        // Pass to C++ addon — it will write PBO readback directly here
+        this.player.setFrameBuffer(view);
+
+        // Send SAB to renderer once — structured clone transfers SAB by reference
+        mainWindow.webContents.send(MPV_IPC.INIT_SAB, sab, MAX_W, MAX_H);
+
+        this.sabInitialized = true;
+        logger.info('SharedArrayBuffer initialized and sent to renderer');
     }
 
     private setupIPC() {
@@ -109,10 +114,6 @@ class MpvController {
         ipcMain.on(MPV_IPC.STOP, () => {
             this.player?.stop();
         });
-
-        ipcMain.on(MPV_IPC.FRAME_DISPLAYED, () => {
-            this.player?.reportSwap();
-        });
     }
 
     private observeProperties() {
@@ -129,6 +130,7 @@ class MpvController {
             this.player.destroy();
             this.player = null;
         }
+        this.sabInitialized = false;
     }
 }
 
