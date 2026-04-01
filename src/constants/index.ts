@@ -77,7 +77,6 @@ export const MPV_IPC = {
     STOP: 'mpv:stop',
     INIT_SAB: 'mpv:init-sab',
     FRAME_READY: 'mpv:frame-ready',
-    FRAME_DISPLAYED: 'mpv:frame-displayed',
     PROPERTY_CHANGE: 'mpv:property-change',
     EVENT: 'mpv:event',
     AVAILABLE: 'mpv:available',

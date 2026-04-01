@@ -9,6 +9,7 @@ const logger = getLogger('MpvController');
 class MpvController {
     private player: any = null;
     private sabInitialized = false;
+    private sabFailed = false;
     private ipcRegistered = false;
     public available = false;
 
@@ -54,10 +55,16 @@ class MpvController {
 
     private setupCallbacks(mainWindow: BrowserWindow) {
         this.player.onFrame = (width: number, height: number) => {
-            if (!this.sabInitialized) {
-                this.initSharedBuffer(mainWindow);
+            if (!this.sabInitialized && !this.sabFailed) {
+                try {
+                    this.initSharedBuffer(mainWindow);
+                } catch (err) {
+                    this.sabFailed = true;
+                    logger.error('Failed to initialize SharedArrayBuffer: ' + err);
+                    return;
+                }
             }
-            // Lightweight signal — pixels are already in the SAB (written by C++ PBO readback)
+            if (!this.sabInitialized) return;
             mainWindow.webContents.send(MPV_IPC.FRAME_READY, { width, height });
         };
 
@@ -131,6 +138,7 @@ class MpvController {
             this.player = null;
         }
         this.sabInitialized = false;
+        this.sabFailed = false;
     }
 }
 
