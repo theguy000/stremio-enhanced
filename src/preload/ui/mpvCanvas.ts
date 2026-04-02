@@ -14,6 +14,10 @@ class MpvCanvas {
     private sabView: Uint8Array | null = null;
     private maxFrameBytes = 0;
 
+    // Pre-allocated flip buffer (reused across frames to avoid GC pressure)
+    private flipBuf: Uint8ClampedArray<ArrayBuffer> | null = null;
+    private flipBufSize = 0;
+
     // Latest signal from main process
     private signalWidth = 0;
     private signalHeight = 0;
@@ -70,11 +74,23 @@ class MpvCanvas {
             this.canvas.height = height;
         }
 
-        // Copy from SAB into a regular Uint8ClampedArray — required because
-        // Chromium's ImageData constructor rejects SharedArrayBuffer-backed views
-        const pixels = new Uint8ClampedArray(frameBytes);
-        pixels.set(new Uint8Array(this.sabView.buffer, slotOffset, frameBytes));
-        const imageData = new ImageData(pixels, width, height);
+        // Pre-allocate flip buffer (reused across frames, only reallocated on resolution change)
+        if (!this.flipBuf || this.flipBufSize !== frameBytes) {
+            this.flipBuf = new Uint8ClampedArray(frameBytes);
+            this.flipBufSize = frameBytes;
+        }
+
+        // Copy from SAB with vertical flip — glReadPixels returns bottom-to-top,
+        // ImageData expects top-to-bottom
+        const rowBytes = width * 4;
+        const src = new Uint8Array(this.sabView.buffer, slotOffset, frameBytes);
+        for (let y = 0; y < height; y++) {
+            const srcOffset = y * rowBytes;
+            const dstOffset = (height - 1 - y) * rowBytes;
+            this.flipBuf.set(src.subarray(srcOffset, srcOffset + rowBytes), dstOffset);
+        }
+
+        const imageData = new ImageData(this.flipBuf, width, height);
         this.ctx.putImageData(imageData, 0, 0);
     }
 }
