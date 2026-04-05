@@ -101,18 +101,24 @@ export function setupExternalPlayerDropdown() {
         if (!dropdown) return;
 
         dropdown.addEventListener('change', async (e) => {
-            const previousValue = (localStorage.getItem(STORAGE_KEYS.PLAYBACK_MODE) ?? 'disabled') as PlaybackMode;
             const selectedValue = (e.target as HTMLSelectElement).value as PlaybackMode;
             localStorage.setItem(STORAGE_KEYS.PLAYBACK_MODE, selectedValue);
             externalPlayerAPI.setEmbeddedMpvPreference(isEmbeddedMpvPlaybackMode(selectedValue));
             logger.info(`Playback mode set to: ${selectedValue}`);
 
+            if (isEmbeddedMpvPlaybackMode(selectedValue)) {
+                const transparencyToggle = document.getElementById('enableTransparentThemes');
+                if (transparencyToggle && !transparencyToggle.classList.contains(CLASSES.CHECKED)) {
+                    transparencyToggle.classList.add(CLASSES.CHECKED);
+                    ipcRenderer.send(IPC_CHANNELS.SET_TRANSPARENCY, true);
+                    logger.info('Window transparency automatically enabled for embedded MPV mode');
+                }
+            }
+
             const vlcPathOption = document.getElementById('vlc-path-option');
             const mpvPathOption = document.getElementById('mpv-path-option');
             if (vlcPathOption) vlcPathOption.style.display = selectedValue === 'vlc' ? '' : 'none';
             if (mpvPathOption) mpvPathOption.style.display = selectedValue === 'mpv' || selectedValue === EMBEDDED_MPV_PLAYBACK_MODE ? '' : 'none';
-
-            const modeSwitchedAcrossEmbedding = isEmbeddedMpvPlaybackMode(previousValue) !== isEmbeddedMpvPlaybackMode(selectedValue);
 
             if (selectedValue !== 'disabled') {
                 const pathStorageKey = getPlayerPathStorageKey(selectedValue);
@@ -132,24 +138,6 @@ export function setupExternalPlayerDropdown() {
                 }
             }
 
-            if (isEmbeddedMpvPlaybackMode(selectedValue)) {
-                const environment = await externalPlayerAPI.getEmbeddedMpvEnvironment();
-                if (!environment.transparentWindow || modeSwitchedAcrossEmbedding) {
-                    await alertAPI.showAlert(
-                        "info",
-                        "Restart Required",
-                        "Embedded MPV uses a transparent frameless window behind the web UI. Restart Stremio Enhanced to fully apply the playback mode change.",
-                        ["OK"]
-                    );
-                }
-            } else if (modeSwitchedAcrossEmbedding) {
-                await alertAPI.showAlert(
-                    "info",
-                    "Restart Recommended",
-                    "Restart Stremio Enhanced to return to the standard window chrome after disabling embedded MPV playback.",
-                    ["OK"]
-                );
-            }
         });
     }).catch(() => {});
 }

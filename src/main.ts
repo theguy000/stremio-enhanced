@@ -84,7 +84,7 @@ async function createWindow() {
             backgroundThrottling: false
         },
         width: 1500,
-        height: 850,
+        height: usesTransparentWindow ? 890 : 850,
         resizable: true,
         maximizable: true,
         fullscreenable: true,
