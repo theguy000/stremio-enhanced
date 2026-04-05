@@ -19,8 +19,8 @@ import { resolvePlayerPath } from '../utils/PlayerBinaryResolver';
 const logger = getLogger('EmbeddedMpvController');
 
 type JsonResolver = {
-    resolve: (value: unknown) => void;
-    reject: (reason?: unknown) => void;
+    resolve: (_value: unknown) => void;
+    reject: (_reason?: unknown) => void;
 };
 
 type MpvTrackPayload = {
@@ -129,6 +129,7 @@ class EmbeddedMpvController {
     private initialized = false;
     private preferenceFlagPath = '';
     private fullscreenListenersBound = false;
+    private startGeneration = 0;
 
     public initIPC(preferenceFlagPath: string): void {
         if (this.initialized) {
@@ -144,7 +145,10 @@ class EmbeddedMpvController {
         ipcMain.handle(IPC_CHANNELS.START_EMBEDDED_MPV, async (_event, payload: EmbeddedMpvStartPayload, customPath?: string) => {
             return this.start(payload, customPath);
         });
-        ipcMain.handle(IPC_CHANNELS.STOP_EMBEDDED_MPV, async () => this.stop('renderer-request'));
+        ipcMain.handle(IPC_CHANNELS.STOP_EMBEDDED_MPV, async () => {
+            this.startGeneration += 1;
+            return this.stop('renderer-request');
+        });
         ipcMain.handle(IPC_CHANNELS.EMBEDDED_MPV_COMMAND, async (_event, command: EmbeddedMpvCommand) => {
             return this.handleCommand(command);
         });
@@ -154,6 +158,7 @@ class EmbeddedMpvController {
     }
 
     public async shutdown(): Promise<void> {
+        this.startGeneration += 1;
         await this.stop('shutdown');
     }
 
@@ -250,6 +255,8 @@ class EmbeddedMpvController {
     }
 
     private async start(payload: EmbeddedMpvStartPayload, customPath?: string): Promise<{ success: boolean; error?: string }> {
+        const generation = ++this.startGeneration;
+
         if (!mainWindow) {
             return { success: false, error: 'Main window is not available.' };
         }
@@ -273,6 +280,11 @@ class EmbeddedMpvController {
             await this.stop('restart', false);
         } else {
             this.closeSocket();
+        }
+
+        if (generation !== this.startGeneration) {
+            logger.info('Start superseded during stop phase, aborting.');
+            return { success: false, error: 'Superseded by a newer playback request.' };
         }
 
         const ipcPath = this.getIpcPath();
@@ -353,11 +365,31 @@ class EmbeddedMpvController {
 
         try {
             await this.connect(ipcPath);
+
+            if (generation !== this.startGeneration) {
+                logger.info('Start superseded during IPC setup, aborting.');
+                this.killOrphanedChild(child);
+                return { success: false, error: 'Superseded by a newer playback request.' };
+            }
+
             await this.observeProperties();
             await this.sendMpvCommand(['loadfile', payload.streamUrl, 'replace']);
+
+            if (generation !== this.startGeneration) {
+                logger.info('Start superseded after loadfile, aborting.');
+                this.killOrphanedChild(child);
+                return { success: false, error: 'Superseded by a newer playback request.' };
+            }
+
             this.setState({ connected: true, loading: true, error: undefined });
             return { success: true };
         } catch (error) {
+            if (generation !== this.startGeneration) {
+                logger.info('Start superseded (error path), aborting silently.');
+                this.killOrphanedChild(child);
+                return { success: false, error: 'Superseded by a newer playback request.' };
+            }
+
             const message = (error as Error).message;
             logger.error(`Failed to initialize embedded MPV: ${message}`);
             await this.stop('start-failed');
@@ -365,6 +397,12 @@ class EmbeddedMpvController {
             return { success: false, error: message };
         } finally {
             this.cleanupSocketPath(ipcPath);
+        }
+    }
+
+    private killOrphanedChild(child: ChildProcess): void {
+        if (!child.killed) {
+            child.kill();
         }
     }
 
@@ -634,6 +672,7 @@ class EmbeddedMpvController {
                     this.setState({ fullscreen: command.value });
                     break;
                 case 'stop':
+                    this.startGeneration += 1;
                     await this.stop('command-stop');
                     break;
                 default:
