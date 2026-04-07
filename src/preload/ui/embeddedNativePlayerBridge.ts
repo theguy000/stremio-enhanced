@@ -27,6 +27,8 @@ const BRIDGE_CONTROL_SURFACE_ATTR = 'data-stremio-enhanced-embedded-mpv-control-
 const BRIDGE_AUDIO_MENU_ATTR = 'data-stremio-enhanced-embedded-mpv-audio-menu';
 const BRIDGE_AUDIO_OPTION_ATTR = 'data-stremio-enhanced-embedded-mpv-audio-option';
 const BRIDGE_AUDIO_SELECTED_ATTR = 'data-stremio-enhanced-embedded-mpv-audio-selected';
+const BRIDGE_SUBTITLE_OVERLAY_ATTR = 'data-stremio-enhanced-subtitle-overlay';
+const BRIDGE_HIDE_SUBTITLE_OVERLAY_ATTR = 'data-stremio-enhanced-hide-subtitle-overlay';
 const BRIDGE_INJECTED_TRACK_ATTR = 'data-stremio-enhanced-injected-track';
 const INJECTED_TRACK_DOT_CLASS = 'injected-track-dot';
 const INJECTED_TRACK_INFO_CLASS = 'injected-track-info';
@@ -59,6 +61,7 @@ const CONTROL_SURFACE_SELECTOR = [
 const EXIT_CONTROL_SELECTOR = '#back-btn, .back-button-container-lDB1N, [class*="back-button-container-"]';
 const CLICKABLE_CONTROL_SELECTOR = `${INTERACTIVE_CONTROL_SELECTOR}, a[href], ${EXIT_CONTROL_SELECTOR}`;
 const AUDIO_MENU_SELECTOR = '[class*="audio-menu"], [data-testid*="audio-menu"]';
+const SUBTITLE_MENU_SELECTOR = '[class*="subtitles-menu"], [data-testid*="subtitles-menu"]';
 const MENU_LAYER_SELECTOR = '[role="dialog"], [class*="menu-layer"], [class*="side-drawer"]';
 const AUDIO_MENU_OPTION_SELECTOR = [
     'button',
@@ -82,8 +85,10 @@ const BACKWARD_KEYWORDS = ['rewind', 'backward', 'back', 'previous', 'replay'];
 const SKIP_CONTENT_KEYWORDS = ['intro', 'opening', 'credits', 'recap', 'outro'];
 const FULLSCREEN_KEYWORDS = ['fullscreen', 'enter fullscreen', 'exit fullscreen'];
 const PREFERRED_AUDIO_SETTING_KEY = 'audioLanguage';
+const PREFERRED_SUBTITLE_SETTING_KEY = 'subtitlesLanguage';
 const EMBEDDED_TRACK_ID_PREFIX = 'EMBEDDED_';
 const PLAYER_AUDIO_TRACK_SYNC_EVENT_PREFIX = '__stremioEnhancedEmbeddedMpvPlayerAudioSync';
+const PLAYER_SUBTITLE_TRACK_SYNC_EVENT_PREFIX = '__stremioEnhancedEmbeddedMpvPlayerSubtitleSync';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -149,11 +154,29 @@ let cachedDisplayNames: Intl.DisplayNames | null = null;
 let lastSyncedPlayerAudioTrackId: string | null | undefined;
 let pendingPlayerAudioTrackSyncId: string | null = null;
 let nextPlayerAudioTrackSyncSequence = 0;
+let pendingSubtitleTrackId: number | null | undefined;
+let lastSyncedPlayerSubtitleTrackId: string | null | undefined;
+let pendingPlayerSubtitleTrackSyncId: string | null | undefined;
+let nextPlayerSubtitleTrackSyncSequence = 0;
 let titleBarResizeObserver: ResizeObserver | null = null;
 let observedTitleBarElement: HTMLElement | null = null;
 let marginSyncFrameId: number | null = null;
 let lastAppliedVideoMarginRatioTop: number | null = null;
 let marginSyncListenersBound = false;
+let subtitleOverlayObserver: MutationObserver | null = null;
+let markedSubtitleOverlay: HTMLElement | null = null;
+let mpvSubsDisabledForExternalSubs = false;
+let subtitleRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+// When an embedded track is explicitly selected, suppress the MutationObserver
+// for a short window so leftover external subtitle DOM nodes don't re-trigger
+// the "external subs detected" logic.
+let suppressOverlayDetectionUntil = 0;
+let lastSeenSubtitleTracks: EmbeddedMpvState['subtitleTracks'] | null = null;
+let lastAppliedPreferredSubtitleSignature: string | null = null;
+// Remembers the user's last manually selected embedded subtitle label so we can
+// re-apply it on the next episode even when multiple tracks share the same language.
+let lastSelectedSubtitleLabel: string | null = null;
+let pendingSubtitleLanguageLabelAction = false;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // CSS Surface & Visibility
@@ -311,6 +334,42 @@ function ensureBridgeSurfaceStyle(): void {
         html[${BRIDGE_SURFACE_ACTIVE_ATTR}="true"] .route-container:last-child [class*="audio-menu"] {
             background-color: var(--modal-background-color, rgba(24, 22, 33, 0.9)) !important;
             backdrop-filter: blur(15px) !important;
+        }
+
+        /* Ensure subtitles menu popup and its contents are visible when bridge is active */
+        html[${BRIDGE_SURFACE_ACTIVE_ATTR}="true"] .route-container:last-child [class*="subtitles-menu"],
+        html[${BRIDGE_SURFACE_ACTIVE_ATTR}="true"] .route-container:last-child [class*="subtitles-menu"] * {
+            visibility: visible !important;
+            pointer-events: auto !important;
+        }
+        html[${BRIDGE_SURFACE_ACTIVE_ATTR}="true"] .route-container:last-child [class*="subtitles-menu"] {
+            background-color: var(--modal-background-color, rgba(24, 22, 33, 0.9)) !important;
+            backdrop-filter: blur(15px) !important;
+        }
+
+        /* Make stremio-video HTML subtitle text overlay visible when bridge is active.
+           The withHTMLSubtitles wrapper in stremio-video creates an absolutely-positioned div
+           inside the video container to render external/third-party subtitle text as inline-block
+           child nodes. We mark it with ${BRIDGE_SUBTITLE_OVERLAY_ATTR} and make it visible here. */
+        html[${BRIDGE_SURFACE_ACTIVE_ATTR}="true"] .route-container:last-child [${BRIDGE_SUBTITLE_OVERLAY_ATTR}="true"],
+        html[${BRIDGE_SURFACE_ACTIVE_ATTR}="true"] .route-container:last-child [${BRIDGE_SUBTITLE_OVERLAY_ATTR}="true"] * {
+            visibility: visible !important;
+            pointer-events: none !important;
+        }
+        html[${BRIDGE_SURFACE_ACTIVE_ATTR}="true"] .route-container:last-child [${BRIDGE_SUBTITLE_OVERLAY_ATTR}="true"][${BRIDGE_HIDE_SUBTITLE_OVERLAY_ATTR}="true"],
+        html[${BRIDGE_SURFACE_ACTIVE_ATTR}="true"] .route-container:last-child [${BRIDGE_SUBTITLE_OVERLAY_ATTR}="true"][${BRIDGE_HIDE_SUBTITLE_OVERLAY_ATTR}="true"] * {
+            visibility: hidden !important;
+        }
+        /* Restore text-shadow for subtitle text inside the overlay since the blanket rule strips it */
+        html[${BRIDGE_SURFACE_ACTIVE_ATTR}="true"] .route-container:last-child [${BRIDGE_SUBTITLE_OVERLAY_ATTR}="true"] > * {
+            text-shadow: -0.15rem -0.15rem 0.15rem rgb(34, 34, 34),
+                         0px -0.15rem 0.15rem rgb(34, 34, 34),
+                         0.15rem -0.15rem 0.15rem rgb(34, 34, 34),
+                         -0.15rem 0px 0.15rem rgb(34, 34, 34),
+                         0.15rem 0px 0.15rem rgb(34, 34, 34),
+                         -0.15rem 0.15rem 0.15rem rgb(34, 34, 34),
+                         0px 0.15rem 0.15rem rgb(34, 34, 34),
+                         0.15rem 0.15rem 0.15rem rgb(34, 34, 34) !important;
         }
 
         /* Injected audio track buttons for embedded MPV */
@@ -1339,6 +1398,523 @@ function getAudioTrackAction(element: HTMLElement): ControlAction | null {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Subtitle Track – Menu DOM Interaction
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Detects when the user clicks inside the Stremio subtitle menu and determines
+// whether they selected an external/third-party track (requires disabling MPV
+// embedded subtitles) or picked "OFF"/embedded track (MPV subs can stay on).
+// This gives us immediate feedback on subtitle selection without waiting for
+// the HTML subtitle overlay to populate with cue text.
+
+function resolveEffectiveSubtitleTrackId(state: EmbeddedMpvState | null): number | null {
+    return pendingSubtitleTrackId !== undefined
+        ? pendingSubtitleTrackId
+        : (state?.currentSubtitleTrackId ?? null);
+}
+
+function findSubtitleTrackIndexById(trackId: number | null | undefined, state: EmbeddedMpvState | null): number | null {
+    if (typeof trackId !== 'number' || !Number.isInteger(trackId) || !state?.subtitleTracks.length) {
+        return null;
+    }
+
+    const trackIndex = state.subtitleTracks.findIndex((track) => track.id === trackId);
+    return trackIndex >= 0 ? trackIndex : null;
+}
+
+function setPendingSubtitleTrackSelection(trackId: number | null | undefined): void {
+    pendingSubtitleTrackId = trackId;
+}
+
+function reconcilePendingSubtitleTrackSelection(state: EmbeddedMpvState | null): void {
+    if (pendingSubtitleTrackId === undefined) {
+        return;
+    }
+
+    if (!state?.active || state.loading) {
+        return;
+    }
+
+    if (pendingSubtitleTrackId === null) {
+        if (state.currentSubtitleTrackId === null) {
+            setPendingSubtitleTrackSelection(undefined);
+        }
+        return;
+    }
+
+    const pendingTrackStillExists = state.subtitleTracks.some((track) => track.id === pendingSubtitleTrackId);
+    const pendingTrackSelected = state.currentSubtitleTrackId === pendingSubtitleTrackId
+        || state.subtitleTracks.some((track) => track.id === pendingSubtitleTrackId && track.selected);
+
+    if (!pendingTrackStillExists || pendingTrackSelected) {
+        setPendingSubtitleTrackSelection(undefined);
+    }
+}
+
+function handleSubtitleMenuClick(target: HTMLElement): boolean {
+    const subtitleMenu = target.closest<HTMLElement>(SUBTITLE_MENU_SELECTOR);
+    if (!subtitleMenu) {
+        return false;
+    }
+
+    logger.info(`[SubtitleMenu] Click detected inside subtitle menu. target: <${target.tagName}> classes="${target.className}" dataset=${JSON.stringify(target.dataset)}`);
+
+    // Walk up from the click target to find a button with data-embedded / data-id attributes.
+    // Stremio's SubtitlesMenu.js renders variant options as <Button> elements with:
+    //   data-id={track.id}  data-embedded={track.embedded}  data-origin={track.origin}
+    let clickedOption: HTMLElement | null = target;
+    while (clickedOption && clickedOption !== subtitleMenu) {
+        if (clickedOption.dataset.id !== undefined || clickedOption.dataset.embedded !== undefined) {
+            break;
+        }
+
+        clickedOption = clickedOption.parentElement;
+    }
+
+    if (!clickedOption || clickedOption === subtitleMenu) {
+        // The user might have clicked a language label (which auto-picks the best variant)
+        // or the "OFF" button. The "OFF" button has no data-id attribute.
+        // Check if the click target is inside the languages list and is the "OFF" option.
+        const langOption = target.closest<HTMLElement>('[class*="language-option"]');
+        if (langOption) {
+            const langValue = langOption.dataset.lang;
+            if (langValue === undefined || langValue === null) {
+                // No data-lang → this is the "OFF" button — disable all subtitles
+                pendingSubtitleLanguageLabelAction = false;
+                logger.info('[SubtitleMenu] OFF button clicked — disabling MPV subtitles');
+                syncPlayerExternalSubtitleTrackState(null);
+                restoreMpvSubtitlesFromExternalOverride(null);
+                return false;
+            }
+
+            // Language clicked — Stremio auto-selects the best variant for that language.
+            // We can't determine embedded vs external from just the language click.
+            // Defer the source decision until either the page selects an embedded track
+            // through the textTracks bridge or the external overlay receives subtitle text.
+            pendingSubtitleLanguageLabelAction = true;
+            logger.info(`[SubtitleMenu] Language label clicked: lang="${langValue}" — deferring to MutationObserver`);
+            return false;
+        }
+
+        logger.info('[SubtitleMenu] No variant button or language option found from click target — ignoring');
+        return false;
+    }
+
+    const isEmbedded = clickedOption.dataset.embedded === 'true';
+    pendingSubtitleLanguageLabelAction = false;
+    logger.info(`[SubtitleMenu] Found option element: data-id="${clickedOption.dataset.id}" data-embedded="${clickedOption.dataset.embedded}" data-origin="${clickedOption.dataset.origin}" isEmbedded=${isEmbedded}`);
+    logger.info(`[SubtitleMenu] Current MPV subtitle state: subtitleTracks=${JSON.stringify(currentState?.subtitleTracks?.map(t => ({ id: t.id, label: t.label, lang: t.language })))} currentSubtitleTrackId=${currentState?.currentSubtitleTrackId}`);
+
+    if (isEmbedded) {
+        // User selected a specific embedded track. Clear external-override state
+        // so the bridge knows MPV embedded subs should be active, then let
+        // Stremio Web's own setSubtitlesTrack() handle the actual MPV command
+        // via the textTracks mode setter → handlePagePatchCommand('set-subtitle-track').
+        // This keeps React UI state and MPV selection on the same path.
+        const stremioTrackId = clickedOption.dataset.id;
+        logger.info(`[SubtitleMenu] Embedded subtitle selected: "${stremioTrackId}"`);
+
+        // Remember label for cross-episode preference
+        if (stremioTrackId) {
+            const embeddedMatch = stremioTrackId.match(/^embedded_(\d+)$/i);
+            if (embeddedMatch && currentState?.subtitleTracks) {
+                const index = Number(embeddedMatch[1]);
+                const track = currentState.subtitleTracks[index];
+                if (track) {
+                    lastSelectedSubtitleLabel = track.label;
+                }
+            }
+        }
+
+        // If we were in external-subtitle mode, clear the override flag and
+        // suppress overlay detection so leftover external subtitle DOM doesn't
+        // immediately re-trigger "external subs detected".
+        if (mpvSubsDisabledForExternalSubs) {
+            mpvSubsDisabledForExternalSubs = false;
+            suppressOverlayDetectionUntil = Date.now() + 2000;
+        }
+        pendingSubtitleLanguageLabelAction = false;
+
+        // Let Stremio Web's handler proceed — it will call setSubtitlesTrack()
+        // which iterates textTracks, sets track.mode='showing', and that triggers
+        // our page-patch command handler to send the MPV set-subtitle-track command.
+        return false;
+    } else {
+        // User selected an external/third-party track — disable MPV subtitles immediately
+        logger.info('[SubtitleMenu] External subtitle track selected — disabling MPV subtitles');
+        disableMpvSubtitlesForExternal(clickedOption.dataset.id ?? null);
+    }
+
+    return false;
+}
+
+function disableMpvSubtitlesForExternal(externalTrackId: string | null = null): void {
+    if (subtitleRestoreTimer !== null) {
+        clearTimeout(subtitleRestoreTimer);
+        subtitleRestoreTimer = null;
+    }
+
+    const shouldSendDisableCommand = !mpvSubsDisabledForExternalSubs || resolveEffectiveSubtitleTrackId(currentState) !== null;
+    setPendingSubtitleTrackSelection(null);
+    lastSyncedPlayerSubtitleTrackId = undefined;
+    pendingPlayerSubtitleTrackSyncId = undefined;
+
+    if (!mpvSubsDisabledForExternalSubs) {
+        logger.info('External subtitle track selected via menu — disabling MPV embedded subtitles');
+    }
+
+    mpvSubsDisabledForExternalSubs = true;
+    syncBridgeState();
+    syncPlayerExternalSubtitleTrackState(externalTrackId);
+
+    if (shouldSendDisableCommand) {
+        void externalPlayerAPI.sendEmbeddedMpvCommand({ command: 'set-subtitle-track', value: null });
+    }
+}
+
+function restoreMpvSubtitlesFromExternalOverride(targetMpvTrackId?: number | null): void {
+    if (subtitleRestoreTimer !== null) {
+        clearTimeout(subtitleRestoreTimer);
+        subtitleRestoreTimer = null;
+    }
+
+    if (mpvSubsDisabledForExternalSubs) {
+        mpvSubsDisabledForExternalSubs = false;
+    }
+    pendingSubtitleLanguageLabelAction = false;
+
+    // Suppress the MutationObserver for a short window so leftover external
+    // subtitle DOM nodes don't immediately re-trigger "external subs detected".
+    if (targetMpvTrackId !== undefined && targetMpvTrackId !== null) {
+        suppressOverlayDetectionUntil = Date.now() + 2000;
+    }
+
+    // Use the explicit target track if provided, otherwise fall back to the bridge's effective subtitle state.
+    const mpvSubTrackId = targetMpvTrackId !== undefined
+        ? targetMpvTrackId
+        : resolveEffectiveSubtitleTrackId(currentState);
+    setPendingSubtitleTrackSelection(mpvSubTrackId ?? null);
+    syncBridgeState();
+    logger.info(`[SubtitleTrack] Sending set-subtitle-track command: value=${mpvSubTrackId} (targetMpvTrackId=${targetMpvTrackId}, currentState.currentSubtitleTrackId=${currentState?.currentSubtitleTrackId})`);
+    externalPlayerAPI.sendEmbeddedMpvCommand({ command: 'set-subtitle-track', value: mpvSubTrackId }).then(
+        (result) => logger.info(`[SubtitleTrack] set-subtitle-track result: ${JSON.stringify(result)}`),
+        (error) => logger.error(`[SubtitleTrack] set-subtitle-track error: ${error}`),
+    );
+}
+
+/**
+ * Resolves a Stremio Web embedded subtitle track ID (e.g. "EMBEDDED_1") to the
+ * corresponding MPV numeric subtitle track ID by looking up the 0-indexed position
+ * in `currentState.subtitleTracks`.
+ *
+ * This mirrors the audio track mapping pattern used by `coerceAudioTrackCommandValue()`.
+ *
+ * @returns The MPV numeric track ID, or `undefined` if the ID can't be resolved.
+ */
+function resolveSubtitleTrackId(stremioTrackId: string): number | undefined {
+    if (!currentState?.subtitleTracks.length) {
+        logger.warn(`[resolveSubtitleTrackId] No subtitle tracks available in currentState (subtitleTracks=${JSON.stringify(currentState?.subtitleTracks)})`);
+        return undefined;
+    }
+
+    const embeddedMatch = stremioTrackId.match(/^embedded_(\d+)$/i);
+    if (!embeddedMatch) {
+        logger.warn(`[resolveSubtitleTrackId] Track ID "${stremioTrackId}" does not match EMBEDDED_N pattern`);
+        return undefined;
+    }
+
+    const trackIndex = Number(embeddedMatch[1]);
+    if (!Number.isInteger(trackIndex) || trackIndex < 0) {
+        logger.warn(`[resolveSubtitleTrackId] Parsed index ${trackIndex} is not a valid non-negative integer`);
+        return undefined;
+    }
+
+    const track = currentState.subtitleTracks[trackIndex];
+    if (track) {
+        logger.info(`[resolveSubtitleTrackId] "${stremioTrackId}" → index ${trackIndex} → MPV track id=${track.id} (label="${track.label}", lang="${track.language}")`);
+        return track.id;
+    }
+
+    logger.warn(`[resolveSubtitleTrackId] Index ${trackIndex} out of bounds (subtitleTracks has ${currentState.subtitleTracks.length} entries: ${JSON.stringify(currentState.subtitleTracks.map(t => t.id))})`);
+    return undefined;
+}
+
+// NOTE: The old queryStremioSelectedSubtitleTrackId / maybeApplyStremioSubtitleSelection approach
+// was removed. Stremio Web does NOT store subtitle selection in transport state — it uses the
+// HTMLMediaElement textTracks API. Subtitle selection is now handled entirely through the
+// page-world textTracks patch (see createTextTrackList / createPatchedTextTrack below).
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Subtitle Track – Preferred Language & Initial Selection
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Mirrors the audio preference system: reads the user's subtitlesLanguage setting
+// and applies it to MPV when subtitle tracks first arrive. Also remembers the user's
+// last manually selected track label for better matching across episodes.
+
+function getPreferredSubtitlePreference(): string | null {
+    const settings = getProfileSettings();
+    if (!settings) {
+        return null;
+    }
+
+    const value = settings[PREFERRED_SUBTITLE_SETTING_KEY];
+    return typeof value === 'string' && normalizeText(value) ? value : null;
+}
+
+type EmbeddedMpvSubtitleTrack = EmbeddedMpvState['subtitleTracks'][number];
+
+function findMatchingSubtitleTrack(
+    tracks: EmbeddedMpvSubtitleTrack[],
+    preference: string | null,
+): EmbeddedMpvSubtitleTrack | null {
+    if (!tracks.length) {
+        return null;
+    }
+
+    // 1. If we remember the user's last selected label AND it matches a track, prefer it.
+    //    This handles the anime case where multiple tracks share the same language
+    //    (e.g. "Signs & Songs" vs "Dialogue" — both "en").
+    if (lastSelectedSubtitleLabel) {
+        const normalizedLastLabel = normalizeText(lastSelectedSubtitleLabel);
+        if (normalizedLastLabel) {
+            for (const track of tracks) {
+                if (normalizeText(track.label) === normalizedLastLabel) {
+                    return track;
+                }
+            }
+        }
+    }
+
+    // 2. Fall back to language preference matching.
+    if (!preference) {
+        return null;
+    }
+
+    // Collect all tracks matching the preferred language
+    const languageMatches: EmbeddedMpvSubtitleTrack[] = [];
+    for (const track of tracks) {
+        if (hasSharedLanguageIdentifier(preference, track.language)) {
+            languageMatches.push(track);
+        }
+    }
+
+    if (languageMatches.length === 0) {
+        return null;
+    }
+
+    // If there's only one match, use it.
+    if (languageMatches.length === 1) {
+        return languageMatches[0];
+    }
+
+    // Multiple tracks with the same language (common in anime dual-sub MKVs).
+    // Prefer tracks with labels suggesting full dialogue subtitles over signs-only.
+    const dialogueKeywords = ['dialogue', 'dialog', 'full', 'full subtitles'];
+    const signsKeywords = ['signs', 'songs', 'signs & songs', 'signs and songs', 'signs/songs', 'forced'];
+    for (const track of languageMatches) {
+        const normalizedLabel = normalizeText(track.label);
+        if (!normalizedLabel) {
+            continue;
+        }
+
+        if (dialogueKeywords.some((kw) => normalizedLabel.includes(kw))) {
+            return track;
+        }
+    }
+
+    // If no dialogue keyword found, avoid signs-only tracks
+    for (const track of languageMatches) {
+        const normalizedLabel = normalizeText(track.label);
+        if (!normalizedLabel) {
+            // No label — could be the main subtitle track
+            return track;
+        }
+
+        if (!signsKeywords.some((kw) => normalizedLabel.includes(kw))) {
+            return track;
+        }
+    }
+
+    // All tracks are signs-only — just pick the last one (often the fuller track)
+    return languageMatches[languageMatches.length - 1];
+}
+
+function buildSubtitleTrackSignature(state: EmbeddedMpvState, preference: string | null): string {
+    const tracksSignature = state.subtitleTracks
+        .map((track) => `${track.id}:${normalizeText(track.label)}:${normalizeText(track.language)}`)
+        .join('|');
+
+    return `${state.title}|${normalizeText(preference)}|${normalizeText(lastSelectedSubtitleLabel)}|${tracksSignature}`;
+}
+
+function dispatchPlayerSubtitleTrackSync(trackId: string | null, embedded: boolean | null): Promise<boolean> {
+    return new Promise((resolve) => {
+        nextPlayerSubtitleTrackSyncSequence += 1;
+        const resultEventName = `${PLAYER_SUBTITLE_TRACK_SYNC_EVENT_PREFIX}_${nextPlayerSubtitleTrackSyncSequence}`;
+        const script = document.createElement('script');
+
+        const handleResult = (event: Event): void => {
+            script.remove();
+            const detail = (event as CustomEvent<{ success?: boolean }>).detail;
+            resolve(Boolean(detail?.success));
+        };
+
+        window.addEventListener(resultEventName, handleResult, { once: true });
+        script.textContent = `(async () => {
+            const emitResult = (success) => {
+                window.dispatchEvent(new CustomEvent(${JSON.stringify(resultEventName)}, { detail: { success } }));
+            };
+
+            try {
+                const services = window.services;
+                const transport = services && services.core && services.core.transport;
+                if (!transport || typeof transport.getState !== 'function' || typeof transport.dispatch !== 'function') {
+                    emitResult(false);
+                    return;
+                }
+
+                const player = await transport.getState('player');
+                const streamState = player && typeof player === 'object' && player.streamState && typeof player.streamState === 'object'
+                    ? player.streamState
+                    : {};
+                const currentSubtitleTrack = streamState && typeof streamState.subtitleTrack === 'object'
+                    ? streamState.subtitleTrack
+                    : null;
+                const currentSubtitleTrackId = currentSubtitleTrack && typeof currentSubtitleTrack.id === 'string'
+                    ? currentSubtitleTrack.id
+                    : null;
+                const currentSubtitleTrackEmbedded = currentSubtitleTrack && typeof currentSubtitleTrack.embedded === 'boolean'
+                    ? currentSubtitleTrack.embedded
+                    : null;
+                const matchesSubtitleTrack = ${embedded === null
+        ? 'currentSubtitleTrackId === null'
+        : `currentSubtitleTrackId === ${JSON.stringify(trackId)} && currentSubtitleTrackEmbedded === ${embedded}`};
+
+                if (matchesSubtitleTrack) {
+                    emitResult(true);
+                    return;
+                }
+
+                await transport.dispatch({
+                    action: 'Player',
+                    args: {
+                        action: 'StreamStateChanged',
+                        args: {
+                            state: {
+                                ...streamState,
+                                subtitleTrack: ${trackId === null ? 'null' : `{ id: ${JSON.stringify(trackId)}, embedded: ${embedded} }`},
+                            },
+                        },
+                    },
+                }, 'player');
+
+                emitResult(true);
+            } catch {
+                emitResult(false);
+            }
+        })();`;
+
+        (document.head ?? document.documentElement).appendChild(script);
+    });
+}
+
+function syncPlayerSubtitleTrackState(trackId: number | null): void {
+    if (!bridgePrepared || !isBridgeEnabledForCurrentRoute() || !currentState?.active || mpvSubsDisabledForExternalSubs) {
+        return;
+    }
+
+    const embeddedTrackIndex = findSubtitleTrackIndexById(trackId, currentState);
+    if (trackId !== null && embeddedTrackIndex === null) {
+        return;
+    }
+
+    const embeddedTrackId = trackId === null
+        ? null
+        : toEmbeddedTrackId(embeddedTrackIndex);
+    const syncKey = embeddedTrackId === null ? null : `embedded:${embeddedTrackId}`;
+
+    if (lastSyncedPlayerSubtitleTrackId === syncKey || pendingPlayerSubtitleTrackSyncId === syncKey) {
+        return;
+    }
+
+    pendingPlayerSubtitleTrackSyncId = syncKey;
+    void dispatchPlayerSubtitleTrackSync(embeddedTrackId, embeddedTrackId === null ? null : true).then((success) => {
+        if (pendingPlayerSubtitleTrackSyncId !== syncKey) {
+            return;
+        }
+
+        pendingPlayerSubtitleTrackSyncId = undefined;
+        if (success) {
+            lastSyncedPlayerSubtitleTrackId = syncKey;
+        }
+    });
+}
+
+function syncPlayerExternalSubtitleTrackState(trackId: string | null): void {
+    if (!bridgePrepared || !isBridgeEnabledForCurrentRoute() || !currentState?.active) {
+        return;
+    }
+
+    const syncKey = trackId === null ? null : `external:${trackId}`;
+    if (lastSyncedPlayerSubtitleTrackId === syncKey || pendingPlayerSubtitleTrackSyncId === syncKey) {
+        return;
+    }
+
+    pendingPlayerSubtitleTrackSyncId = syncKey;
+    void dispatchPlayerSubtitleTrackSync(trackId, trackId === null ? null : false).then((success) => {
+        if (pendingPlayerSubtitleTrackSyncId !== syncKey) {
+            return;
+        }
+
+        pendingPlayerSubtitleTrackSyncId = undefined;
+        if (success) {
+            lastSyncedPlayerSubtitleTrackId = syncKey;
+        }
+    });
+}
+
+function maybeApplyPreferredSubtitleTrack(state: EmbeddedMpvState | null): void {
+    if (!state?.active || !state.connected || state.loading || state.subtitleTracks.length === 0) {
+        lastAppliedPreferredSubtitleSignature = null;
+        return;
+    }
+
+    const preference = getPreferredSubtitlePreference();
+    const signature = buildSubtitleTrackSignature(state, preference);
+    if (signature === lastAppliedPreferredSubtitleSignature) {
+        return;
+    }
+
+    lastAppliedPreferredSubtitleSignature = signature;
+
+    // Don't apply if no preference and no label memory
+    if (!preference && !lastSelectedSubtitleLabel) {
+        return;
+    }
+
+    const preferredTrack = findMatchingSubtitleTrack(state.subtitleTracks, preference);
+    if (!preferredTrack) {
+        return;
+    }
+
+    if (preferredTrack.id === resolveEffectiveSubtitleTrackId(state) && !mpvSubsDisabledForExternalSubs) {
+        logger.info(`[SubtitlePref] MPV already has preferred subtitle track "${preferredTrack.label}" (id=${preferredTrack.id})`);
+        return;
+    }
+
+    logger.info(`[SubtitlePref] Selecting preferred embedded subtitle track "${preferredTrack.label}" (id=${preferredTrack.id}) for preference="${preference}", lastLabel="${lastSelectedSubtitleLabel}"`);
+    pendingSubtitleLanguageLabelAction = false;
+    mpvSubsDisabledForExternalSubs = false;
+    setPendingSubtitleTrackSelection(preferredTrack.id);
+    syncBridgeState();
+    // Suppress the MutationObserver so leftover external subtitle DOM nodes from
+    // a previous selection don't immediately undo this preference application.
+    suppressOverlayDetectionUntil = Date.now() + 2000;
+    void externalPlayerAPI.sendEmbeddedMpvCommand({ command: 'set-subtitle-track', value: preferredTrack.id });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Seek / Timeline
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -1607,6 +2183,25 @@ function buildPagePatchState(state: EmbeddedMpvState | null) {
     const dimensions = getApproxVideoDimensions();
     const effectiveAudioTrackId = resolveEffectiveAudioTrackId(state);
     const effectiveAudioTrackIndex = findAudioTrackIndexById(effectiveAudioTrackId, state);
+    const currentSubTrackId = resolveEffectiveSubtitleTrackId(state);
+
+    const subtitleTracks = (state?.subtitleTracks ?? []).map((track, index) => ({
+        id: toEmbeddedTrackId(index) ?? String(index),
+        label: track.label,
+        language: track.language,
+        mode: currentSubTrackId !== null && track.id === currentSubTrackId ? 'showing' : 'disabled',
+    }));
+    const currentSubtitleTrackId = currentSubTrackId !== null
+        ? toEmbeddedTrackId(
+            (state?.subtitleTracks ?? []).findIndex((t) => t.id === currentSubTrackId),
+        )
+        : null;
+
+    const _subDiagPreloadSig = `${currentSubTrackId}|${currentSubtitleTrackId}|${subtitleTracks.map(t => t.id + ':' + t.mode).join(',')}`;
+    if (_subDiagPreloadSig !== (buildPagePatchState as any)._lastSig) {
+        (buildPagePatchState as any)._lastSig = _subDiagPreloadSig;
+        logger.info(`[SubDiag][preload] buildPagePatchState: mpv currentSubTrackId(raw)=${currentSubTrackId} → stremio currentSubtitleTrackId=${currentSubtitleTrackId} tracks=${JSON.stringify(subtitleTracks.map(t => ({ id: t.id, mode: t.mode, label: t.label })))}`);
+    }
 
     return {
         active: Boolean(state?.active && (state?.connected || state?.loading) && isBridgeEnabledForCurrentRoute()),
@@ -1632,6 +2227,8 @@ function buildPagePatchState(state: EmbeddedMpvState | null) {
                 : Boolean(track.selected),
         })),
         currentAudioTrackId: toEmbeddedTrackId(effectiveAudioTrackIndex),
+        subtitleTracks,
+        currentSubtitleTrackId,
     };
 }
 
@@ -1687,6 +2284,49 @@ function handlePagePatchCommand(action: string, value: unknown): void {
                 setPendingAudioTrackSelection(nextTrackId);
                 syncBridgeState();
                 void externalPlayerAPI.sendEmbeddedMpvCommand({ command: 'set-audio-track', value: nextTrackId });
+            }
+            break;
+        }
+        case 'set-subtitle-track': {
+            // Stremio Web sends the EMBEDDED_N string when user selects a subtitle.
+            // The textTracks mode setter dispatches the raw MPV numeric ID.
+            // Resolve either form to an MPV numeric track ID.
+            if (value === null || value === 'off') {
+                logger.info('[PagePatch] set-subtitle-track: OFF');
+                lastSelectedSubtitleLabel = null;
+                restoreMpvSubtitlesFromExternalOverride(null);
+                break;
+            }
+
+            // Handle numeric MPV track IDs (dispatched by the textTracks mode setter)
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                const track = currentState?.subtitleTracks?.find(t => t.id === value);
+                if (track) {
+                    lastSelectedSubtitleLabel = track.label;
+                    logger.info(`[PagePatch] set-subtitle-track (numeric): ${value} → label="${track.label}"`);
+                }
+                restoreMpvSubtitlesFromExternalOverride(value);
+                break;
+            }
+
+            if (typeof value === 'string') {
+                const mpvTrackId = resolveSubtitleTrackId(value);
+                if (mpvTrackId !== undefined) {
+                    // Remember the label of the selected track for preference matching
+                    const embeddedMatch = value.match(/^embedded_(\d+)$/i);
+                    if (embeddedMatch && currentState?.subtitleTracks) {
+                        const index = Number(embeddedMatch[1]);
+                        const track = currentState.subtitleTracks[index];
+                        if (track) {
+                            lastSelectedSubtitleLabel = track.label;
+                            logger.info(`[PagePatch] Remembering subtitle label: "${track.label}"`);
+                        }
+                    }
+                    logger.info(`[PagePatch] set-subtitle-track: "${value}" → MPV id=${mpvTrackId}`);
+                    restoreMpvSubtitlesFromExternalOverride(mpvTrackId);
+                } else {
+                    logger.warn(`[PagePatch] set-subtitle-track: could not resolve "${value}"`);
+                }
             }
             break;
         }
@@ -1764,9 +2404,12 @@ function ensurePageMediaPatch(): void {
             videoHeight: 1,
             audioTracks: [],
             currentAudioTrackId: null,
+            subtitleTracks: [],
+            currentSubtitleTrackId: null,
         };
         const stashedSrcs = new WeakMap();
         const audioTrackLists = new WeakMap();
+        const textTrackLists = new WeakMap();
         const readiedVideos = new WeakSet();
         const silencedVideos = new WeakSet();
         let fullscreenElementRef = null;
@@ -1936,6 +2579,8 @@ function ensurePageMediaPatch(): void {
         const srcObjectDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'srcObject');
         const audioTracksDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'audioTracks')
             || Object.getOwnPropertyDescriptor(HTMLVideoElement.prototype, 'audioTracks');
+        const textTracksDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'textTracks')
+            || Object.getOwnPropertyDescriptor(HTMLVideoElement.prototype, 'textTracks');
         const currentTimeDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
         const durationDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'duration');
         const pausedDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'paused');
@@ -2068,6 +2713,252 @@ function ensurePageMediaPatch(): void {
 
             const entry = ensureAudioTrackList(video);
             entry.setTracks(state.audioTracks);
+
+            if (emitChange) {
+                entry.emitChange();
+            }
+        };
+
+        const getSubtitleTrackSignature = (tracks = []) => tracks
+            .map((track) => [track.id, track.label || '', track.language || '', track.mode === 'showing' ? '1' : '0'].join(':'))
+            .join('|');
+
+        // List-only signature excludes selection state so we only fire
+        // textTracks.onchange when tracks are added or removed.
+        // Selection changes are handled directly by stremio-video's setProp
+        // flow (which iterates textTracks by index and sets track.mode).
+        const getSubtitleTrackListSignature = (tracks = []) => tracks
+            .map((track) => [track.id, track.label || '', track.language || ''].join(':'))
+            .join('|');
+
+        const createPatchedTextTrack = (track, sharedState, index) => {
+            const textTrack = {};
+            const stremioId = 'EMBEDDED_' + index;
+            const mpvId = track.id;
+            const isShowing = () => sharedState.activeTrackId === stremioId;
+            const setMode = (value) => {
+                const wasShowing = isShowing();
+                if (value === 'showing') {
+                    // Optimistically update shared state so immediate reads see the new mode.
+                    // Mark the timestamp so setTracks() won't overwrite with stale server state.
+                    sharedState.activeTrackId = stremioId;
+                    sharedState.optimisticSetAt = Date.now();
+                    console.log('[SubDiag][page] mode setter showing:', stremioId, '→ dispatching set-subtitle-track mpvId=', mpvId);
+                    dispatchCommand('set-subtitle-track', mpvId);
+                } else if (value === 'disabled' || value === 'hidden') {
+                    // Only update local state — do NOT send set-subtitle-track null here.
+                    // When switching between tracks, Stremio Web first sets the old track
+                    // to 'disabled' then sets the new one to 'showing'. If we sent null here,
+                    // it would create a race where MPV disables subs mid-switch.
+                    // Explicit OFF is handled by handleSubtitleMenuClick, not the mode setter.
+                    if (sharedState.activeTrackId === stremioId) {
+                        sharedState.activeTrackId = null;
+                        console.log('[SubDiag][page] mode setter disabled:', stremioId, '→ cleared activeTrackId');
+                    }
+                }
+                // When effective mode changes, schedule textTracks.onchange so
+                // stremio-video's HTMLVideo handler fires onPropChanged for
+                // selectedSubtitlesTrackId. Uses a microtask to batch multiple
+                // mode sets within a single setProp iteration into one event.
+                if (isShowing() !== wasShowing && sharedState.scheduleEmitChange) {
+                    console.log('[SubDiag][page] mode changed on', stremioId, '→ wasShowing:', wasShowing, 'isShowing:', isShowing(), '→ scheduling emitChange');
+                    sharedState.scheduleEmitChange();
+                }
+            };
+
+            Object.defineProperties(textTrack, {
+                id: {
+                    configurable: true,
+                    enumerable: true,
+                    value: stremioId,
+                },
+                label: {
+                    configurable: true,
+                    enumerable: true,
+                    value: track.label || track.language || ('Subtitle ' + track.id),
+                },
+                language: {
+                    configurable: true,
+                    enumerable: true,
+                    value: track.language || '',
+                },
+                kind: {
+                    configurable: true,
+                    enumerable: true,
+                    value: 'subtitles',
+                },
+                mode: {
+                    configurable: true,
+                    enumerable: true,
+                    get: () => isShowing() ? 'showing' : 'disabled',
+                    set: setMode,
+                },
+                cues: {
+                    configurable: true,
+                    enumerable: true,
+                    value: null,
+                },
+                activeCues: {
+                    configurable: true,
+                    enumerable: true,
+                    value: null,
+                },
+                addCue: {
+                    configurable: true,
+                    enumerable: true,
+                    value: () => {},
+                },
+                removeCue: {
+                    configurable: true,
+                    enumerable: true,
+                    value: () => {},
+                },
+                addEventListener: {
+                    configurable: true,
+                    enumerable: true,
+                    value: () => {},
+                },
+                removeEventListener: {
+                    configurable: true,
+                    enumerable: true,
+                    value: () => {},
+                },
+            });
+
+            return textTrack;
+        };
+
+        const createTextTrackList = () => {
+            const emitter = document.createDocumentFragment();
+            // Shared mutable state: when a track's mode is set to 'showing', we update
+            // activeTrackId immediately so the getter reflects the change without waiting
+            // for the MPV state round-trip.
+            const sharedState = { activeTrackId: null, optimisticSetAt: 0, scheduleEmitChange: null };
+            // Use a real array so Array.from(video.textTracks) and for-of iteration
+            // return the actual patched tracks — matching the audioTrackList pattern.
+            // stremio-video discovers embedded subtitle tracks through iteration.
+            const trackList = [];
+
+            // Make onchange a custom setter so we can detect when stremio-video
+            // installs its handler. If tracks already exist at that point, fire
+            // emitChange immediately so stremio-video discovers them.
+            let _onchange = null;
+            Object.defineProperty(trackList, 'onchange', {
+                configurable: true,
+                enumerable: true,
+                get: () => _onchange,
+                set: (handler) => {
+                    _onchange = handler;
+                    if (handler && trackList.length > 0) {
+                        console.log('[SubDiag][page] onchange handler installed with', trackList.length, 'existing tracks → scheduling emitChange');
+                        Promise.resolve().then(() => emitChange());
+                    }
+                },
+            });
+            trackList.onaddtrack = null;
+            trackList.onremovetrack = null;
+            trackList.item = (index) => trackList[index] || null;
+            trackList.getTrackById = (id) => trackList.find((track) => String(track.id) === String(id)) || null;
+            trackList.addEventListener = emitter.addEventListener.bind(emitter);
+            trackList.removeEventListener = emitter.removeEventListener.bind(emitter);
+            trackList.dispatchEvent = emitter.dispatchEvent.bind(emitter);
+
+            const emitChange = () => {
+                console.log('[SubDiag][page] emitChange fired. tracks:', trackList.map(t => ({ id: t.id, mode: t.mode })));
+                const changeEvent = new Event('change');
+                trackList.dispatchEvent(changeEvent);
+                if (typeof trackList.onchange === 'function') {
+                    trackList.onchange.call(trackList, changeEvent);
+                }
+            };
+
+            // Macrotask-debounced emitChange — batches multiple mode changes within
+            // a single setProp iteration into one event.  Using setTimeout(0)
+            // instead of Promise.resolve().then() ensures this fires AFTER all
+            // pending microtasks (including the async Core state sync performed
+            // by syncPlayerSubtitleTrackState).  This prevents Player.js
+            // auto-restoration from reading stale streamState.subtitleTrack and
+            // overriding the preload-world's preferred subtitle selection.
+            let emitChangePending = false;
+            sharedState.scheduleEmitChange = () => {
+                if (!emitChangePending) {
+                    emitChangePending = true;
+                    setTimeout(() => {
+                        emitChangePending = false;
+                        console.log('[SubDiag][page] scheduleEmitChange firing. activeTrackId:', sharedState.activeTrackId);
+                        emitChange();
+                    }, 0);
+                }
+            };
+
+            return {
+                trackList,
+                sharedState,
+                setTracks: (tracks) => {
+                    trackList.length = 0;
+                    // Sync activeTrackId from server state using EMBEDDED_N format,
+                    // BUT preserve the optimistic selection if the mode setter fired
+                    // recently. Server state lags behind MPV command round-trips, so
+                    // overwriting would flash the UI back to the old selection.
+                    const optimisticAge = Date.now() - sharedState.optimisticSetAt;
+                    const hasRecentOptimistic = optimisticAge < 3000;
+                    const prevActiveTrackId = sharedState.activeTrackId;
+
+                    if (!hasRecentOptimistic) {
+                        let activeId = null;
+                        tracks.forEach((t, i) => { if (t.mode === 'showing') activeId = 'EMBEDDED_' + i; });
+                        sharedState.activeTrackId = activeId;
+                        const _setTracksSig = tracks.map((t,i) => 'EMBEDDED_'+i+':'+t.mode).join(',') + '|' + activeId;
+                        if (_setTracksSig !== sharedState._lastSetTracksSig) {
+                            sharedState._lastSetTracksSig = _setTracksSig;
+                            console.log('[SubDiag][page] setTracks (server sync): tracks=', tracks.map((t,i) => ({ stremioId: 'EMBEDDED_'+i, mode: t.mode, label: t.label })), '→ activeTrackId:', prevActiveTrackId, '→', activeId);
+                        }
+                    } else {
+                        // Check if server state has caught up (confirms our optimistic pick)
+                        let serverActiveId = null;
+                        tracks.forEach((t, i) => { if (t.mode === 'showing') serverActiveId = 'EMBEDDED_' + i; });
+                        if (serverActiveId === sharedState.activeTrackId) {
+                            // Server confirmed — clear the optimistic guard
+                            sharedState.optimisticSetAt = 0;
+                            console.log('[SubDiag][page] setTracks (optimistic confirmed): serverActiveId=', serverActiveId, '→ guard cleared');
+                        } else {
+                            console.log('[SubDiag][page] setTracks (optimistic held): serverActiveId=', serverActiveId, 'sharedState.activeTrackId=', sharedState.activeTrackId, 'age=', optimisticAge, 'ms');
+                        }
+                        // Otherwise keep the optimistic activeTrackId
+                    }
+
+                    trackList.push(...tracks.map((track, index) => createPatchedTextTrack(track, sharedState, index)));
+
+                    // If activeTrackId changed from server sync (e.g., preload-world
+                    // selected a track in MPV directly via maybeApplyPreferredSubtitleTrack),
+                    // announce the change so stremio-video reads the new selectedSubtitlesTrackId.
+                    if (sharedState.activeTrackId !== prevActiveTrackId && sharedState.scheduleEmitChange) {
+                        console.log('[SubDiag][page] setTracks: activeTrackId changed', prevActiveTrackId, '→', sharedState.activeTrackId, '→ scheduling emitChange');
+                        sharedState.scheduleEmitChange();
+                    }
+                },
+                emitChange,
+            };
+        };
+
+        const ensureTextTrackList = (video) => {
+            let entry = textTrackLists.get(video);
+            if (!entry) {
+                entry = createTextTrackList();
+                entry.setTracks(state.subtitleTracks);
+                textTrackLists.set(video, entry);
+            }
+
+            return entry;
+        };
+
+        const refreshTextTrackList = (video = getVideo(), emitChange = false) => {
+            if (!video) {
+                return;
+            }
+
+            const entry = ensureTextTrackList(video);
+            entry.setTracks(state.subtitleTracks);
 
             if (emitChange) {
                 entry.emitChange();
@@ -2266,6 +3157,25 @@ function ensurePageMediaPatch(): void {
             },
         });
 
+        Object.defineProperty(HTMLMediaElement.prototype, 'textTracks', {
+            configurable: true,
+            enumerable: true,
+            get: function() {
+                if (isPatchedVideo(this)) {
+                    // Keep iteration empty to avoid duplicate menu entries, but still
+                    // expose getTrackById()/mode bridging so page-side subtitle state can
+                    // activate embedded MPV tracks and keep the player UI in sync.
+                    return ensureTextTrackList(this).trackList;
+                }
+
+                if (textTracksDescriptor && textTracksDescriptor.get) {
+                    return textTracksDescriptor.get.call(this);
+                }
+
+                return [];
+            },
+        });
+
         patchAccessor(HTMLMediaElement.prototype, 'currentTime', currentTimeDescriptor, () => state.currentTime, (value) => {
             if (typeof value === 'number' && Number.isFinite(value)) {
                 dispatchCommand('seek', value);
@@ -2317,7 +3227,45 @@ function ensurePageMediaPatch(): void {
             }
         }, true);
 
-        const refreshPatchedVideo = (emitAudioTrackChange = false) => {
+        const subtitleOverlayAttr = ${JSON.stringify(BRIDGE_SUBTITLE_OVERLAY_ATTR)};
+
+        const markSubtitleOverlay = (video) => {
+            if (!video || !state.active) {
+                return;
+            }
+
+            const parent = video.parentElement;
+            if (!parent) {
+                return;
+            }
+
+            // The withHTMLSubtitles wrapper creates a div as a sibling of the video element
+            // inside the same container with: position: absolute; right: 0; bottom: 0; left: 0;
+            // z-index: 1; text-align: center. Mark it with our data attribute for CSS visibility
+            // and so the preload-world MutationObserver can find it reliably.
+            for (const child of parent.children) {
+                if (child === video || !(child instanceof HTMLElement) || child.tagName !== 'DIV') {
+                    continue;
+                }
+
+                if (child.hasAttribute(subtitleOverlayAttr)) {
+                    continue;
+                }
+
+                const s = child.style;
+                if (
+                    s.position === 'absolute'
+                    && s.textAlign === 'center'
+                    && (s.zIndex === '1' || s.zIndex === '')
+                    && (s.left === '0' || s.left === '0px')
+                    && (s.right === '0' || s.right === '0px')
+                ) {
+                    child.setAttribute(subtitleOverlayAttr, 'true');
+                }
+            }
+        };
+
+        const refreshPatchedVideo = (emitAudioTrackChange = false, emitSubtitleTrackChange = false) => {
             const video = getVideo();
             if (!video || !state.active) {
                 return;
@@ -2325,12 +3273,33 @@ function ensurePageMediaPatch(): void {
 
             silenceNativeVideo(video);
             refreshAudioTrackList(video, emitAudioTrackChange);
+            // Always populate tracks but defer emitChange until after readiness.
+            // Firing textTracks.onchange before stremio-video has received the
+            // readiness events (canplaythrough etc.) can disrupt its loading
+            // sequence and leave the player stuck in a loading state.
+            refreshTextTrackList(video, false);
 
             if (state.fileLoaded && !readiedVideos.has(video)) {
+                console.log('[SubDiag][page] refreshPatchedVideo: first readiness. subtitleTracks=', state.subtitleTracks.map((t,i) => ({ stremioId: 'EMBEDDED_'+i, mode: t.mode, label: t.label })));
                 emitReadiness(video);
+                // Video just became ready — announce existing tracks so stremio-video
+                // discovers them. Handles reload where tracks + file-loaded arrived
+                // before the video element existed in DOM.
+                if (state.subtitleTracks.length > 0) {
+                    ensureTextTrackList(video).emitChange();
+                }
+                emitSubtitleTrackChange = false;
+            }
+
+            // Emit subtitle track changes only after the video is ready, so
+            // stremio-video discovers tracks in a stable state.
+            if (emitSubtitleTrackChange && readiedVideos.has(video)) {
+                console.log('[SubDiag][page] refreshPatchedVideo: explicit emitChange (subtitleListChanged=true). tracks=', state.subtitleTracks.map((t,i) => ({ stremioId: 'EMBEDDED_'+i, mode: t.mode })));
+                ensureTextTrackList(video).emitChange();
             }
 
             hideNativeLoadingUi();
+            markSubtitleOverlay(video);
         };
 
         const domObserver = new MutationObserver(() => {
@@ -2350,6 +3319,9 @@ function ensurePageMediaPatch(): void {
             const previousFullscreen = state.fullscreen;
             const previousAudioTracksSignature = getAudioTrackSignature(state.audioTracks);
             const previousCurrentAudioTrackId = state.currentAudioTrackId;
+            const previousSubtitleTracksSignature = getSubtitleTrackSignature(state.subtitleTracks);
+            const previousSubtitleListSignature = getSubtitleTrackListSignature(state.subtitleTracks);
+            const previousCurrentSubtitleTrackId = state.currentSubtitleTrackId;
 
             Object.assign(state, detail);
 
@@ -2359,11 +3331,29 @@ function ensurePageMediaPatch(): void {
 
             const audioTracksChanged = previousAudioTracksSignature !== getAudioTrackSignature(state.audioTracks);
             const audioTrackSelectionChanged = previousCurrentAudioTrackId !== state.currentAudioTrackId;
+            const subtitleTracksChanged = previousSubtitleTracksSignature !== getSubtitleTrackSignature(state.subtitleTracks);
+            const subtitleListChanged = previousSubtitleListSignature !== getSubtitleTrackListSignature(state.subtitleTracks);
 
-            refreshPatchedVideo(audioTracksChanged || audioTrackSelectionChanged);
+            if (subtitleTracksChanged) {
+                console.log('[SubDiag][page] state-listener: subtitleTracksChanged=true subtitleListChanged=', subtitleListChanged,
+                    'prev sig:', previousSubtitleTracksSignature,
+                    'new sig:', getSubtitleTrackSignature(state.subtitleTracks),
+                    'currentSubtitleTrackId:', state.currentSubtitleTrackId);
+            }
+
+            // Only fire textTracks.onchange when the track list structure changes
+            // (tracks added/removed). Selection changes are handled by stremio-video's
+            // own setProp flow which sets track.mode directly on the textTracks shim.
+            // Firing onchange on selection changes would trigger Player.js auto-restoration.
+            refreshPatchedVideo(
+                audioTracksChanged || audioTrackSelectionChanged,
+                subtitleListChanged,
+            );
 
             if (!wasLoaded && state.fileLoaded) {
-                emitReadiness();
+                // Readiness and track announcement are handled by
+                // refreshPatchedVideo above (its readiness block fires
+                // emitReadiness + emitChange when video element exists).
                 hideNativeLoadingUi();
                 return;
             }
@@ -2572,6 +3562,176 @@ function refreshVideoVisibility(): void {
 
     populateEmptyAudioMenu();
     syncAudioMenuSelection();
+    trackSubtitleOverlay();
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// External Subtitle Overlay Tracking
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Stremio Web uses stremio-video's withHTMLSubtitles wrapper to render external/third-party
+// subtitle text. It creates an absolutely-positioned div (position: absolute; bottom: 0;
+// left: 0; right: 0; z-index: 1; text-align: center) inside the video container element.
+// When external subtitles are active, cue text nodes are appended as children of this div.
+// We find this div, mark it with a data attribute so our CSS can make it visible through the
+// bridge surface, and watch it with a MutationObserver to disable MPV's embedded subtitles
+// when external subtitles are active (and re-enable them when deactivated).
+
+function findSubtitleOverlayElement(): HTMLElement | null {
+    // First, check if the page-world patch already marked the subtitle overlay.
+    // This is the most reliable path since the page-world MutationObserver marks the
+    // stremio-video subtitle div as soon as it's appended to the video container.
+    const marked = document.querySelector<HTMLElement>(`[${BRIDGE_SUBTITLE_OVERLAY_ATTR}="true"]`);
+    if (marked) {
+        return marked;
+    }
+
+    // Fallback: find the video element and look for sibling divs in the same container
+    // that match the withHTMLSubtitles overlay characteristics (position: absolute,
+    // text-align: center, z-index: 1, left: 0, right: 0).
+    const video = document.querySelector('video');
+    if (!video) {
+        return null;
+    }
+
+    const parent = video.parentElement;
+    if (!parent) {
+        return null;
+    }
+
+    for (const child of parent.children) {
+        if (child === video || !(child instanceof HTMLElement) || child.tagName !== 'DIV') {
+            continue;
+        }
+
+        const s = child.style;
+        if (
+            s.position === 'absolute'
+            && s.textAlign === 'center'
+            && (s.zIndex === '1' || s.zIndex === '')
+            && (s.left === '0' || s.left === '0px')
+            && (s.right === '0' || s.right === '0px')
+        ) {
+            return child;
+        }
+    }
+
+    return null;
+}
+
+function updateSubtitleOverlayVisibility(): void {
+    if (!markedSubtitleOverlay) {
+        return;
+    }
+
+    const shouldHideOverlay = !mpvSubsDisabledForExternalSubs && resolveEffectiveSubtitleTrackId(currentState) !== null;
+    if (shouldHideOverlay) {
+        markedSubtitleOverlay.setAttribute(BRIDGE_HIDE_SUBTITLE_OVERLAY_ATTR, 'true');
+    } else {
+        markedSubtitleOverlay.removeAttribute(BRIDGE_HIDE_SUBTITLE_OVERLAY_ATTR);
+    }
+}
+
+function subtitleOverlayHasText(overlay: HTMLElement | null): boolean {
+    if (!overlay) {
+        return false;
+    }
+
+    for (const child of overlay.childNodes) {
+        const text = child.textContent?.trim();
+        if (text && text.length > 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function onSubtitleOverlayMutation(): void {
+    if (!markedSubtitleOverlay || !bridgePrepared || !currentState?.active) {
+        return;
+    }
+
+    updateSubtitleOverlayVisibility();
+
+    if (!pendingSubtitleLanguageLabelAction) {
+        return;
+    }
+
+    // If we recently switched to an embedded track, ignore mutations briefly
+    // so leftover external subtitle DOM nodes don't re-trigger disable.
+    if (Date.now() < suppressOverlayDetectionUntil) {
+        return;
+    }
+
+    if (subtitleOverlayHasText(markedSubtitleOverlay)) {
+        pendingSubtitleLanguageLabelAction = false;
+        logger.info('External subtitles confirmed after language selection — disabling MPV embedded subtitles');
+        disableMpvSubtitlesForExternal();
+    }
+}
+
+function trackSubtitleOverlay(): void {
+    if (!bridgePrepared || !isBridgeEnabledForCurrentRoute() || !currentState?.active) {
+        teardownSubtitleOverlayTracking();
+        return;
+    }
+
+    const overlay = findSubtitleOverlayElement();
+    if (!overlay) {
+        // No overlay found yet — it may appear later when stremio-video initializes
+        return;
+    }
+
+    if (overlay === markedSubtitleOverlay) {
+        // Already tracking this element
+        updateSubtitleOverlayVisibility();
+        return;
+    }
+
+    // Teardown previous tracking if the overlay element changed
+    teardownSubtitleOverlayTracking();
+
+    // Mark the overlay so our CSS visibility rules apply
+    overlay.setAttribute(BRIDGE_SUBTITLE_OVERLAY_ATTR, 'true');
+    markedSubtitleOverlay = overlay;
+
+    // Watch for child additions/removals (subtitle text cue nodes)
+    subtitleOverlayObserver = new MutationObserver(onSubtitleOverlayMutation);
+    subtitleOverlayObserver.observe(overlay, { childList: true });
+
+    updateSubtitleOverlayVisibility();
+
+    logger.info('Subtitle overlay tracking started');
+}
+
+function teardownSubtitleOverlayTracking(): void {
+    if (subtitleRestoreTimer !== null) {
+        clearTimeout(subtitleRestoreTimer);
+        subtitleRestoreTimer = null;
+    }
+
+    if (subtitleOverlayObserver) {
+        subtitleOverlayObserver.disconnect();
+        subtitleOverlayObserver = null;
+    }
+
+    if (markedSubtitleOverlay) {
+        markedSubtitleOverlay.removeAttribute(BRIDGE_HIDE_SUBTITLE_OVERLAY_ATTR);
+        markedSubtitleOverlay.removeAttribute(BRIDGE_SUBTITLE_OVERLAY_ATTR);
+        markedSubtitleOverlay = null;
+    }
+
+    if (mpvSubsDisabledForExternalSubs) {
+        mpvSubsDisabledForExternalSubs = false;
+        // Restore MPV subs if we were suppressing them
+        if (currentState?.currentSubtitleTrackId != null) {
+            void externalPlayerAPI.sendEmbeddedMpvCommand({
+                command: 'set-subtitle-track',
+                value: currentState.currentSubtitleTrackId,
+            });
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2602,6 +3762,7 @@ function syncBridgeState(): void {
     const patchState = buildPagePatchState(currentState);
     dispatchPagePatchState(patchState);
     syncPlayerAudioTrackState(resolveEffectiveAudioTrackId(currentState));
+    syncPlayerSubtitleTrackState(resolveEffectiveSubtitleTrackId(currentState));
     updateBridgeSurfaceState();
     refreshVideoVisibility();
     refreshTitleBarObserver();
@@ -2616,12 +3777,17 @@ function ensureStateSubscription(): void {
     stateSubscription = externalPlayerAPI.onEmbeddedMpvState((state) => {
         currentState = state;
         reconcilePendingAudioTrackSelection(state);
+        reconcilePendingSubtitleTrackSelection(state);
         if ((state.volume ?? 0) > 0) {
             lastNonZeroVolume = Math.round(state.volume);
         }
         if (state.audioTracks !== lastSeenAudioTracks) {
             lastSeenAudioTracks = state.audioTracks;
             maybeApplyPreferredAudioTrack(state);
+        }
+        if (state.subtitleTracks !== lastSeenSubtitleTracks) {
+            lastSeenSubtitleTracks = state.subtitleTracks;
+            maybeApplyPreferredSubtitleTrack(state);
         }
         syncBridgeState();
     });
@@ -2645,6 +3811,16 @@ function installControlInterceptors(): void {
             ? event.target
             : null;
         if (rawTarget) {
+            // Observe subtitle menu clicks (non-blocking — let Stremio Web handle the
+            // selection normally while we send the corresponding MPV subtitle command).
+            const subtitleMenuHandled = handleSubtitleMenuClick(rawTarget);
+            if (subtitleMenuHandled) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                event.stopPropagation();
+                return;
+            }
+
             const audioTrackAction = getAudioTrackAction(rawTarget);
             if (audioTrackAction) {
                 executeControlAction(audioTrackAction);
@@ -2797,10 +3973,20 @@ function prepareEmbeddedNativePlayerBridge(): void {
 export function activateEmbeddedNativePlayerBridge(): void {
     forceEnded = false;
     lastAppliedPreferredAudioSignature = null;
+    lastAppliedPreferredSubtitleSignature = null;
     pendingAudioTrackId = null;
+    pendingSubtitleTrackId = undefined;
     lastSeenAudioTracks = null;
+    lastSeenSubtitleTracks = null;
     lastSyncedPlayerAudioTrackId = undefined;
     pendingPlayerAudioTrackSyncId = null;
+    lastSyncedPlayerSubtitleTrackId = undefined;
+    pendingPlayerSubtitleTrackSyncId = undefined;
+    mpvSubsDisabledForExternalSubs = false;
+    suppressOverlayDetectionUntil = 0;
+    pendingSubtitleLanguageLabelAction = false;
+    // NOTE: lastSelectedSubtitleLabel is intentionally NOT reset here.
+    // We want to remember the user's subtitle preference across episodes.
     prepareEmbeddedNativePlayerBridge();
     logger.info('Embedded native player bridge activated');
 }
@@ -2811,14 +3997,23 @@ export function deactivateEmbeddedNativePlayerBridge(): void {
     muted = false;
     forceEnded = false;
     lastAppliedPreferredAudioSignature = null;
+    lastAppliedPreferredSubtitleSignature = null;
     pendingAudioTrackId = null;
+    pendingSubtitleTrackId = undefined;
     lastSeenAudioTracks = null;
+    lastSeenSubtitleTracks = null;
     lastSyncedPlayerAudioTrackId = undefined;
     pendingPlayerAudioTrackSyncId = null;
+    lastSyncedPlayerSubtitleTrackId = undefined;
+    pendingPlayerSubtitleTrackSyncId = undefined;
     lastAppliedVideoMarginRatioTop = null;
+    pendingSubtitleLanguageLabelAction = false;
+    // Reset subtitle label memory on full deactivation (leaving player entirely)
+    lastSelectedSubtitleLabel = null;
     dispatchPagePatchState(buildPagePatchState(null));
     clearControlSurfaceMarkers();
     clearAudioMenuSelectionMarkers();
+    teardownSubtitleOverlayTracking();
     updateBridgeSurfaceState();
     restoreVideoVisibilityPatch();
     uninstallControlInterceptors();
