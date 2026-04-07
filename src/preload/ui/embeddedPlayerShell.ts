@@ -68,6 +68,9 @@ let $nextVideoPopup: HTMLElement | null = null;
 let nextVideoDismissed = false;
 let nextVideoShown = false;
 
+// Playback lifecycle
+let playbackStarted = false;
+
 // Menu state
 let activeMenu: 'audio' | 'subtitle' | 'speed' | null = null;
 let lastTracksJson = '';
@@ -188,6 +191,7 @@ function destroy(): void {
     $nextVideoPopup = null;
     nextVideoDismissed = false;
     nextVideoShown = false;
+    playbackStarted = false;
     if (volumeIndTimer !== null) { clearTimeout(volumeIndTimer); volumeIndTimer = null; }
     activeMenu = null;
     lastTracksJson = '';
@@ -489,8 +493,13 @@ function updateSpeedMenu(currentSpeed: number): void {
 function onPlaybackState(state: HelperPlaybackState): void {
     if (!containerEl) return;
 
-    // If the helper signals playback ended, tear down and go back
-    if (state.ended) {
+    // Track when real playback begins (duration becomes known)
+    if (!playbackStarted && state.duration > 0) {
+        playbackStarted = true;
+    }
+
+    // Only react to ended once playback has actually started
+    if (playbackStarted && state.ended) {
         destroy();
         history.back();
         return;
