@@ -114,10 +114,30 @@ function mount(streamUrl: string, _playerState: unknown): void {
     // Start immerse timer
     resetImmerseTimer();
 
-    // Ask main to launch & load
-    embeddedPlayerAPI.sendCommand({ type: 'load', payload: { url: streamUrl } }).catch((err) => {
-        logger.error("Failed to send load command: " + String(err));
-    });
+    // Start the helper process, obtain the native window handle, then load the stream.
+    (async () => {
+        try {
+            const initResult = await embeddedPlayerAPI.sendCommand({ type: 'initialize' });
+            if (!initResult.success) {
+                logger.error("Failed to initialize helper: " + (initResult.error ?? 'unknown'));
+                showError("Failed to start playback engine.");
+                return;
+            }
+
+            const hwnd = await embeddedPlayerAPI.getNativeHandle();
+            if (hwnd) {
+                await embeddedPlayerAPI.sendCommand({
+                    type: 'attach-surface',
+                    payload: { hwnd: Buffer.from(hwnd).toString('hex') },
+                });
+            }
+
+            await embeddedPlayerAPI.sendCommand({ type: 'load', payload: { url: streamUrl } });
+        } catch (err) {
+            logger.error("Failed during player startup: " + String(err));
+            showError("Failed to start playback.");
+        }
+    })();
 }
 
 // ─── Destroy ──────────────────────────────────────────────────
@@ -468,6 +488,13 @@ function updateSpeedMenu(currentSpeed: number): void {
 // ─── State callbacks ──────────────────────────────────────────
 function onPlaybackState(state: HelperPlaybackState): void {
     if (!containerEl) return;
+
+    // If the helper signals playback ended, tear down and go back
+    if (state.ended) {
+        destroy();
+        history.back();
+        return;
+    }
 
     lastDuration = state.duration;
     lastPosition = state.position;
