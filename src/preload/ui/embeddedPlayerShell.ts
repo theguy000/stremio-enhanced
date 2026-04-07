@@ -56,6 +56,17 @@ let $speedMenu: HTMLElement | null = null;
 let $audioMenuItems: HTMLElement | null = null;
 let $subtitleMenuItems: HTMLElement | null = null;
 let $speedLabel: HTMLElement | null = null;
+let $seekThumb: HTMLElement | null = null;
+
+// Volume indicator refs
+let $volumeIndicator: HTMLElement | null = null;
+let $volIndFill: HTMLElement | null = null;
+let volumeIndTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Next-video popup refs
+let $nextVideoPopup: HTMLElement | null = null;
+let nextVideoDismissed = false;
+let nextVideoShown = false;
 
 // Menu state
 let activeMenu: 'audio' | 'subtitle' | 'speed' | null = null;
@@ -152,6 +163,12 @@ function destroy(): void {
     $volumeIcon = $mutedIcon = $volumeSlider = null;
     $audioMenu = $subtitleMenu = $speedMenu = null;
     $audioMenuItems = $subtitleMenuItems = $speedLabel = null;
+    $seekThumb = null;
+    $volumeIndicator = $volIndFill = null;
+    $nextVideoPopup = null;
+    nextVideoDismissed = false;
+    nextVideoShown = false;
+    if (volumeIndTimer !== null) { clearTimeout(volumeIndTimer); volumeIndTimer = null; }
     activeMenu = null;
     lastTracksJson = '';
 }
@@ -182,6 +199,14 @@ function resolveElements(): void {
     $audioMenuItems = containerEl.querySelector('#embedded-audio-menu-items');
     $subtitleMenuItems = containerEl.querySelector('#embedded-subtitle-menu-items');
     $speedLabel = containerEl.querySelector('#embedded-speed-label');
+    $seekThumb = containerEl.querySelector('#embedded-seek-thumb');
+
+    // Volume indicator refs
+    $volumeIndicator = containerEl.querySelector('#embedded-volume-indicator');
+    $volIndFill = containerEl.querySelector('#vol-ind-fill');
+
+    // Next-video popup refs
+    $nextVideoPopup = containerEl.querySelector('#embedded-next-video-popup');
 }
 
 // ─── Controls wiring ──────────────────────────────────────────
@@ -215,6 +240,7 @@ function wireControls(streamUrl: string): void {
     $seekInput?.addEventListener('input', () => {
         const pct = parseFloat($seekInput!.value);
         if ($seekProgress) $seekProgress.style.width = `${pct}%`;
+        if ($seekThumb) $seekThumb.style.left = `${pct}%`;
     });
     $seekInput?.addEventListener('change', () => {
         const pct = parseFloat($seekInput!.value);
@@ -222,6 +248,12 @@ function wireControls(streamUrl: string): void {
         const dur = parseDuration();
         embeddedPlayerAPI.sendCommand({ type: 'seek', payload: { position: (pct / 100) * dur } }).catch(() => {});
     });
+
+    // Slider-active guard — prevent immerse while dragging seek bar
+    $seekInput?.addEventListener('mousedown', () => containerEl?.classList.add('slider-active'));
+    $seekInput?.addEventListener('mouseup', () => containerEl?.classList.remove('slider-active'));
+    $seekInput?.addEventListener('touchstart', () => containerEl?.classList.add('slider-active'), { passive: true });
+    $seekInput?.addEventListener('touchend', () => containerEl?.classList.remove('slider-active'));
 
     // Volume
     $volumeSlider?.addEventListener('input', () => {
@@ -272,6 +304,18 @@ function wireControls(streamUrl: string): void {
         }
     });
 
+    // Next-video popup buttons
+    containerEl.querySelector('#nvp-dismiss')?.addEventListener('click', () => {
+        nextVideoDismissed = true;
+        if ($nextVideoPopup) $nextVideoPopup.style.display = 'none';
+    });
+    containerEl.querySelector('#nvp-watch')?.addEventListener('click', () => {
+        // Signal main process to play the next video (handled via 'ended' event flow)
+        embeddedPlayerAPI.sendCommand({ type: 'stop' }).catch(() => {});
+        nextVideoDismissed = true;
+        if ($nextVideoPopup) $nextVideoPopup.style.display = 'none';
+    });
+
     // Keyboard shortcuts
     keydownHandler = (e: KeyboardEvent) => {
         if (!containerEl) return;
@@ -295,10 +339,20 @@ function wireControls(streamUrl: string): void {
             case 'ArrowUp':
                 e.preventDefault();
                 embeddedPlayerAPI.sendCommand({ type: 'set-volume', payload: { volume: Math.min(100, (lastVolume ?? 100) + 5) } }).catch(() => {});
+                showVolumeIndicator(Math.min(100, (lastVolume ?? 100) + 5));
                 break;
             case 'ArrowDown':
                 e.preventDefault();
                 embeddedPlayerAPI.sendCommand({ type: 'set-volume', payload: { volume: Math.max(0, (lastVolume ?? 100) - 5) } }).catch(() => {});
+                showVolumeIndicator(Math.max(0, (lastVolume ?? 100) - 5));
+                break;
+            case 'j':
+                e.preventDefault();
+                embeddedPlayerAPI.sendCommand({ type: 'seek', payload: { position: Math.max(0, (lastPosition ?? 0) - 10) } }).catch(() => {});
+                break;
+            case 'l':
+                e.preventDefault();
+                embeddedPlayerAPI.sendCommand({ type: 'seek', payload: { position: (lastPosition ?? 0) + 10 } }).catch(() => {});
                 break;
             case 'm':
                 embeddedPlayerAPI.sendCommand({ type: 'set-mute', payload: { mute: $mutedIcon?.style.display === 'none' } }).catch(() => {});
@@ -335,6 +389,20 @@ let lastPosition: number | null = null;
 let lastVolume: number | null = null;
 function parseDuration(): number {
     return lastDuration > 0 ? lastDuration : 0;
+}
+
+const NEXT_VIDEO_THRESHOLD_S = 30; // show "next video" popup when ≤30s remain
+const VOLUME_INDICATOR_MS = 1500;
+
+function showVolumeIndicator(vol: number): void {
+    if (!$volumeIndicator || !$volIndFill) return;
+    $volIndFill.style.width = `${Math.round(vol)}%`;
+    $volumeIndicator.style.display = '';
+    if (volumeIndTimer !== null) clearTimeout(volumeIndTimer);
+    volumeIndTimer = setTimeout(() => {
+        if ($volumeIndicator) $volumeIndicator.style.display = 'none';
+        volumeIndTimer = null;
+    }, VOLUME_INDICATOR_MS);
 }
 
 // ─── Menu helpers ─────────────────────────────────────────────
@@ -416,6 +484,7 @@ function onPlaybackState(state: HelperPlaybackState): void {
         const pct = (state.position / state.duration) * 100;
         $seekProgress.style.width = `${pct}%`;
         $seekInput.value = String(pct);
+        if ($seekThumb) $seekThumb.style.left = `${pct}%`;
     }
 
     // Time labels
@@ -450,6 +519,15 @@ function onPlaybackState(state: HelperPlaybackState): void {
         const subtitleTracks = state.tracks.filter((t) => t.type === 'subtitle');
         if ($audioMenuItems) renderTrackMenu($audioMenuItems, audioTracks, 'set-audio-track');
         if ($subtitleMenuItems) renderTrackMenu($subtitleMenuItems, subtitleTracks, 'set-subtitle-track');
+    }
+
+    // Next-video popup — show near end of playback for series
+    if (state.duration > 0 && !nextVideoDismissed && !nextVideoShown) {
+        const remaining = state.duration - state.position;
+        if (remaining <= NEXT_VIDEO_THRESHOLD_S && remaining > 0) {
+            nextVideoShown = true;
+            if ($nextVideoPopup) $nextVideoPopup.style.display = '';
+        }
     }
 }
 

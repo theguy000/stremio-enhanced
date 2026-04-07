@@ -42,6 +42,7 @@
         <div id="embedded-seek-bar" class="seek-bar-container">
             <div id="embedded-seek-progress" class="seek-progress"></div>
             <div id="embedded-seek-buffered" class="seek-buffered"></div>
+            <div id="embedded-seek-thumb" class="seek-thumb"></div>
             <input id="embedded-seek-input" class="seek-input" type="range" min="0" max="100" value="0" step="0.1" />
         </div>
 
@@ -110,14 +111,43 @@
     <div id="embedded-speed-menu" class="layer menu-layer" style="display:none;">
         <div class="menu-header">Speed</div>
         <div id="embedded-speed-menu-items" class="menu-items">
-            <button class="menu-item speed-preset" data-speed="0.25">0.25x</button>
-            <button class="menu-item speed-preset" data-speed="0.5">0.5x</button>
-            <button class="menu-item speed-preset" data-speed="0.75">0.75x</button>
-            <button class="menu-item speed-preset selected" data-speed="1">1x</button>
-            <button class="menu-item speed-preset" data-speed="1.25">1.25x</button>
-            <button class="menu-item speed-preset" data-speed="1.5">1.5x</button>
-            <button class="menu-item speed-preset" data-speed="1.75">1.75x</button>
             <button class="menu-item speed-preset" data-speed="2">2x</button>
+            <button class="menu-item speed-preset" data-speed="1.75">1.75x</button>
+            <button class="menu-item speed-preset" data-speed="1.5">1.5x</button>
+            <button class="menu-item speed-preset" data-speed="1.25">1.25x</button>
+            <button class="menu-item speed-preset selected" data-speed="1">1x</button>
+            <button class="menu-item speed-preset" data-speed="0.75">0.75x</button>
+            <button class="menu-item speed-preset" data-speed="0.5">0.5x</button>
+            <button class="menu-item speed-preset" data-speed="0.25">0.25x</button>
+        </div>
+    </div>
+
+    <!-- Next-video popup -->
+    <div id="embedded-next-video-popup" class="next-video-popup" style="display:none;">
+        <div class="nvp-poster">
+            <img id="nvp-poster-image" src="" alt="" />
+        </div>
+        <div class="nvp-info">
+            <div class="nvp-details">
+                <div id="nvp-series-name" class="nvp-name"></div>
+                <div id="nvp-video-title" class="nvp-title"></div>
+            </div>
+            <div class="nvp-buttons">
+                <button id="nvp-dismiss" class="nvp-btn nvp-dismiss-btn">Dismiss</button>
+                <button id="nvp-watch" class="nvp-btn nvp-play-btn">Watch Now</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Volume change indicator -->
+    <div id="embedded-volume-indicator" class="layer volume-indicator-layer" style="display:none;">
+        <div class="volume-indicator-content">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 8.5v7a4.47 4.47 0 002.5-3.5zM14 3.23v2.06a7.007 7.007 0 010 13.42v2.06A9.01 9.01 0 0021 12 9.01 9.01 0 0014 3.23z"/>
+            </svg>
+            <div class="volume-indicator-bar">
+                <div id="vol-ind-fill" class="volume-indicator-fill"></div>
+            </div>
         </div>
     </div>
 </div>

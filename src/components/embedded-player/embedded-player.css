@@ -14,15 +14,15 @@
     overflow: hidden;
 }
 
-/* Overlay auto-hide when immersed */
-.embedded-player-container.immersed .nav-bar-layer,
-.embedded-player-container.immersed .control-bar-layer {
+/* Overlay auto-hide when immersed (not while seeking) */
+.embedded-player-container.immersed:not(.slider-active) .nav-bar-layer,
+.embedded-player-container.immersed:not(.slider-active) .control-bar-layer {
     opacity: 0;
     pointer-events: none;
     transition: opacity 200ms ease;
 }
 
-.embedded-player-container.immersed {
+.embedded-player-container.immersed:not(.slider-active) {
     cursor: none;
 }
 
@@ -186,7 +186,7 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    padding: 0 1rem 0.5rem;
+    padding: 0 1.5rem;
     overflow: visible;
     opacity: 1;
     transition: opacity 200ms ease;
@@ -206,7 +206,7 @@
 .embedded-player-container .seek-bar-container {
     position: relative;
     width: 100%;
-    height: 1.5rem;
+    height: 2.5rem;
     display: flex;
     align-items: center;
     cursor: pointer;
@@ -217,12 +217,13 @@
     left: 0;
     top: 50%;
     transform: translateY(-50%);
-    height: 4px;
+    height: 0.5rem;
     background: var(--primary-accent-color, #7b5bf5);
-    border-radius: 2px;
+    border-radius: 0.25rem;
     pointer-events: none;
     z-index: 1;
     width: 0%;
+    transition: height 100ms ease;
 }
 
 .embedded-player-container .seek-buffered {
@@ -230,12 +231,18 @@
     left: 0;
     top: 50%;
     transform: translateY(-50%);
-    height: 4px;
+    height: 0.5rem;
     background: rgba(255, 255, 255, 0.25);
-    border-radius: 2px;
+    border-radius: 0.25rem;
     pointer-events: none;
     z-index: 0;
     width: 0%;
+    transition: height 100ms ease;
+}
+
+.embedded-player-container .seek-bar-container:hover .seek-progress,
+.embedded-player-container .seek-bar-container:hover .seek-buffered {
+    height: 0.7rem;
 }
 
 .embedded-player-container .seek-input {
@@ -251,12 +258,31 @@
     appearance: none;
 }
 
+.embedded-player-container .seek-bar-container .seek-thumb {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    width: 1.3rem;
+    height: 1.3rem;
+    background: var(--primary-accent-color, #7b5bf5);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 3;
+    transition: transform 100ms ease;
+    left: 0%;
+}
+
+.embedded-player-container .seek-bar-container:hover .seek-thumb,
+.embedded-player-container.slider-active .seek-thumb {
+    transform: translate(-50%, -50%) scale(1);
+}
+
 /* Controls row */
 .embedded-player-container .controls-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 3rem;
+    height: 3.5rem;
 }
 
 .embedded-player-container .controls-left,
@@ -270,8 +296,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 3.5rem;
+    height: 3.5rem;
     border: none;
     border-radius: 50%;
     background: transparent;
@@ -300,7 +326,7 @@
 
 /* Volume slider */
 .embedded-player-container .volume-slider {
-    width: 80px;
+    flex: 0 1 10rem;
     height: 4px;
     -webkit-appearance: none;
     appearance: none;
@@ -308,13 +334,14 @@
     border-radius: 2px;
     outline: none;
     cursor: pointer;
+    margin: 0 0.5rem;
 }
 
 .embedded-player-container .volume-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     background: #fff;
     border-radius: 50%;
     cursor: pointer;
@@ -333,11 +360,12 @@
 .embedded-player-container .menu-layer {
     top: initial;
     left: initial;
-    right: 1rem;
-    bottom: 5rem;
+    right: 4rem;
+    bottom: 8rem;
     width: auto;
-    min-width: 12rem;
-    max-height: calc(100% - 10rem);
+    min-width: 14rem;
+    max-height: calc(100% - 13.5rem);
+    max-width: calc(100% - 4rem);
     z-index: 20;
     background: var(--modal-background-color, rgba(24, 26, 37, 0.92));
     backdrop-filter: blur(15px);
@@ -348,9 +376,17 @@
     padding: 0.25rem 0;
 }
 
+.embedded-player-container #embedded-audio-menu {
+    min-width: 16rem;
+}
+
+.embedded-player-container #embedded-speed-menu {
+    min-width: 14rem;
+}
+
 .embedded-player-container .menu-header {
-    padding: 0.5rem 1rem;
-    font-size: 0.75rem;
+    padding: 1.5rem 2rem 0.5rem;
+    font-size: 0.85rem;
     font-weight: 700;
     text-transform: uppercase;
     color: rgba(255, 255, 255, 0.5);
@@ -360,13 +396,15 @@
 .embedded-player-container .menu-items {
     display: flex;
     flex-direction: column;
+    padding: 0 0.5rem;
+    gap: 0.25rem;
 }
 
 .embedded-player-container .menu-item {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
     border: none;
     background: transparent;
     color: rgba(255, 255, 255, 0.85);
@@ -374,10 +412,17 @@
     text-align: left;
     cursor: pointer;
     white-space: nowrap;
+    border-radius: var(--border-radius, 4px);
+    min-height: 3.2rem;
+}
+
+/* Audio menu items are taller */
+.embedded-player-container #embedded-audio-menu .menu-item {
+    min-height: 3.5rem;
 }
 
 .embedded-player-container .menu-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--overlay-color, rgba(255, 255, 255, 0.08));
 }
 
 .embedded-player-container .menu-item.selected {
@@ -385,14 +430,159 @@
     font-weight: 600;
 }
 
-.embedded-player-container .menu-item.selected::before {
-    content: "\2713";
-    margin-right: 0.25rem;
+.embedded-player-container .menu-item.selected::after {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--secondary-accent-color, var(--primary-accent-color, #7b5bf5));
+    flex-shrink: 0;
+    margin-left: 1rem;
 }
 
 /* Also auto-hide menus when immersed */
-.embedded-player-container.immersed .menu-layer {
+.embedded-player-container.immersed:not(.slider-active) .menu-layer {
     opacity: 0;
     pointer-events: none;
     transition: opacity 200ms ease;
+}
+
+/* ─── Next-video popup ─────────────────────────────────────── */
+.embedded-player-container .next-video-popup {
+    position: absolute;
+    right: 2rem;
+    bottom: 8rem;
+    width: 38rem;
+    max-width: calc(100% - 4rem);
+    min-height: 10rem;
+    z-index: 15;
+    display: flex;
+    background: var(--modal-background-color, rgba(24, 26, 37, 0.92));
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border-radius: var(--border-radius, 4px);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+    animation: nvp-slide-in 300ms ease forwards;
+}
+
+@keyframes nvp-slide-in {
+    from { transform: translateX(4rem); opacity: 0; }
+    to   { transform: translateX(0); opacity: 1; }
+}
+
+.embedded-player-container .nvp-poster {
+    flex: 0 0 10rem;
+    overflow: hidden;
+}
+
+.embedded-player-container .nvp-poster img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.embedded-player-container .nvp-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    min-width: 0;
+}
+
+.embedded-player-container .nvp-name {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.5);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.embedded-player-container .nvp-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    margin-top: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.embedded-player-container .nvp-buttons {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.embedded-player-container .nvp-btn {
+    padding: 0.5rem 1.25rem;
+    border: none;
+    border-radius: var(--border-radius, 4px);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.embedded-player-container .nvp-dismiss-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.embedded-player-container .nvp-dismiss-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.embedded-player-container .nvp-play-btn {
+    background: var(--primary-accent-color, #7b5bf5);
+    color: #fff;
+}
+
+.embedded-player-container .nvp-play-btn:hover {
+    opacity: 0.85;
+}
+
+/* ─── Volume change indicator HUD ──────────────────────────── */
+.embedded-player-container .volume-indicator-layer {
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    background: transparent;
+}
+
+.embedded-player-container .volume-indicator-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 2rem 2.5rem;
+    background: var(--overlay-color, rgba(0, 0, 0, 0.7));
+    border-radius: var(--border-radius, 4px);
+    animation: vol-fade-in 150ms ease;
+}
+
+@keyframes vol-fade-in {
+    from { opacity: 0; transform: scale(0.9); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+.embedded-player-container .volume-indicator-content svg {
+    color: var(--primary-foreground-color, #fff);
+}
+
+.embedded-player-container .volume-indicator-bar {
+    width: 8rem;
+    height: 0.35rem;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 0.2rem;
+    overflow: hidden;
+}
+
+.embedded-player-container .volume-indicator-fill {
+    height: 100%;
+    background: var(--primary-foreground-color, #fff);
+    border-radius: 0.2rem;
+    transition: width 100ms ease;
 }
