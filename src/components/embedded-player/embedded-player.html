@@ -68,6 +68,19 @@
                 </div>
             </div>
             <div class="controls-right">
+                <button id="embedded-subtitle-btn" class="control-btn subtitle-btn" title="Subtitles">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/>
+                    </svg>
+                </button>
+                <button id="embedded-audio-btn" class="control-btn audio-btn" title="Audio tracks">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M12 3v9.28a4.39 4.39 0 00-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/>
+                    </svg>
+                </button>
+                <button id="embedded-speed-btn" class="control-btn speed-btn" title="Playback speed">
+                    <span id="embedded-speed-label" class="speed-label">1x</span>
+                </button>
                 <button id="embedded-mute-btn" class="control-btn mute-btn" title="Mute / Unmute">
                     <svg id="embedded-volume-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
                         <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 8.5v7a4.47 4.47 0 002.5-3.5zM14 3.23v2.06a7.007 7.007 0 010 13.42v2.06A9.01 9.01 0 0021 12 9.01 9.01 0 0014 3.23z"/>
@@ -78,6 +91,33 @@
                 </button>
                 <input id="embedded-volume-slider" class="volume-slider" type="range" min="0" max="100" value="100" />
             </div>
+        </div>
+    </div>
+
+    <!-- Audio track menu -->
+    <div id="embedded-audio-menu" class="layer menu-layer" style="display:none;">
+        <div class="menu-header">Audio</div>
+        <div id="embedded-audio-menu-items" class="menu-items"></div>
+    </div>
+
+    <!-- Subtitle track menu -->
+    <div id="embedded-subtitle-menu" class="layer menu-layer" style="display:none;">
+        <div class="menu-header">Subtitles</div>
+        <div id="embedded-subtitle-menu-items" class="menu-items"></div>
+    </div>
+
+    <!-- Speed menu -->
+    <div id="embedded-speed-menu" class="layer menu-layer" style="display:none;">
+        <div class="menu-header">Speed</div>
+        <div id="embedded-speed-menu-items" class="menu-items">
+            <button class="menu-item speed-preset" data-speed="0.25">0.25x</button>
+            <button class="menu-item speed-preset" data-speed="0.5">0.5x</button>
+            <button class="menu-item speed-preset" data-speed="0.75">0.75x</button>
+            <button class="menu-item speed-preset selected" data-speed="1">1x</button>
+            <button class="menu-item speed-preset" data-speed="1.25">1.25x</button>
+            <button class="menu-item speed-preset" data-speed="1.5">1.5x</button>
+            <button class="menu-item speed-preset" data-speed="1.75">1.75x</button>
+            <button class="menu-item speed-preset" data-speed="2">2x</button>
         </div>
     </div>
 </div>

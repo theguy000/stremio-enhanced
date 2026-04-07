@@ -1,6 +1,8 @@
 import Helpers from "../../utils/Helpers";
 import PlaybackState from "../../utils/PlaybackState";
 import DiscordPresence from "../../core/DiscordPresence";
+import { STORAGE_KEYS } from "../../constants";
+import { embeddedPlayerAPI } from "../api/embeddedPlayer";
 
 export const discordTracker = {
     
@@ -23,13 +25,19 @@ export const discordTracker = {
         if (!location.href.includes('#/player')) return;
         
         try {
-            await Helpers.waitForElm('video');
-            const video = document.getElementsByTagName('video')[0] as HTMLVideoElement;
-            if (!video) return;
-
             const playerState = await PlaybackState.getPlayerState();
             if (!playerState) return;
             const { metaDetails } = playerState;
+
+            // Embedded-mpv: use helper state instead of DOM video element
+            if (localStorage.getItem(STORAGE_KEYS.PLAYBACK_MODE) === 'embedded-mpv') {
+                discordTracker._trackFromHelper(metaDetails, playerState);
+                return;
+            }
+
+            await Helpers.waitForElm('video');
+            const video = document.getElementsByTagName('video')[0] as HTMLVideoElement;
+            if (!video) return;
 
             const handlePlaying = () => {
                 const startTimestamp = Math.floor(Date.now() / 1000) - Math.floor(video.currentTime);
@@ -105,5 +113,49 @@ export const discordTracker = {
         if (activity) {
             DiscordPresence.setMainMenu(activity);
         }
+    },
+
+    /** Track Discord presence from embedded-mpv helper state instead of DOM video. */
+    _trackFromHelper: (metaDetails: { id: string; name: string; type: string; poster?: string }, playerState: { seriesInfoDetails?: { episode: number; season: number } | null }) => {
+        let cleanupState: (() => void) | null = null;
+
+        const unsubscribe = () => {
+            cleanupState?.();
+            cleanupState = null;
+        };
+
+        // Unsubscribe on navigation away from player
+        const onHash = () => {
+            if (!location.href.includes('#/player')) {
+                unsubscribe();
+                window.removeEventListener('hashchange', onHash);
+            }
+        };
+        window.addEventListener('hashchange', onHash);
+
+        cleanupState = embeddedPlayerAPI.onState((state) => {
+            if (state.paused) {
+                const formattedTime = Helpers.formatTime(state.position);
+                if (metaDetails.type === "series" && playerState.seriesInfoDetails) {
+                    const { episode, season } = playerState.seriesInfoDetails;
+                    const isKitsu = metaDetails.id.startsWith("kitsu:");
+                    const stateStr = `Paused at ${formattedTime} in ${!isKitsu ? `S${season} E${episode}` : `E${episode}`}`;
+                    DiscordPresence.setPaused(metaDetails.name, stateStr, metaDetails.poster);
+                } else if (metaDetails.type === "movie") {
+                    DiscordPresence.setPaused(metaDetails.name, `Paused at ${formattedTime}`, metaDetails.poster);
+                }
+            } else {
+                const startTimestamp = Math.floor(Date.now() / 1000) - Math.floor(state.position);
+                const endTimestamp = startTimestamp + Math.floor(state.duration);
+                if (metaDetails.type === "series" && playerState.seriesInfoDetails) {
+                    const { episode, season } = playerState.seriesInfoDetails;
+                    const isKitsu = metaDetails.id.startsWith("kitsu:");
+                    const stateStr = `Watching ${!isKitsu ? `S${season} E${episode}` : `E${episode}`}`;
+                    DiscordPresence.setPlaying(metaDetails.name, stateStr, startTimestamp, endTimestamp, metaDetails.poster);
+                } else if (metaDetails.type === "movie") {
+                    DiscordPresence.setPlaying(metaDetails.name, 'Watching', startTimestamp, endTimestamp, metaDetails.poster);
+                }
+            }
+        });
     }
 };

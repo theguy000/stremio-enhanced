@@ -4,7 +4,7 @@ import TemplateCache from '../../utils/templateCache';
 import { embeddedPlayerAPI } from '../api/embeddedPlayer';
 import { registerEmbeddedMountCallback, unregisterEmbeddedMountCallback } from './externalPlayerInterceptor';
 import { getLogger } from '../../utils/logger';
-import type { HelperPlaybackState, HelperStatus } from '../../interfaces/EmbeddedPlayerTypes';
+import type { HelperPlaybackState, HelperStatus, TrackInfo } from '../../interfaces/EmbeddedPlayerTypes';
 
 const logger = getLogger("EmbeddedPlayerShell");
 
@@ -48,6 +48,21 @@ let $timeDuration: HTMLElement | null = null;
 let $volumeIcon: HTMLElement | null = null;
 let $mutedIcon: HTMLElement | null = null;
 let $volumeSlider: HTMLInputElement | null = null;
+
+// Track / speed menu refs
+let $audioMenu: HTMLElement | null = null;
+let $subtitleMenu: HTMLElement | null = null;
+let $speedMenu: HTMLElement | null = null;
+let $audioMenuItems: HTMLElement | null = null;
+let $subtitleMenuItems: HTMLElement | null = null;
+let $speedLabel: HTMLElement | null = null;
+
+// Menu state
+let activeMenu: 'audio' | 'subtitle' | 'speed' | null = null;
+let lastTracksJson = '';
+
+// Keyboard handler ref for cleanup
+let keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
 // ─── Mount ────────────────────────────────────────────────────
 function mount(streamUrl: string, _playerState: unknown): void {
@@ -124,12 +139,21 @@ function destroy(): void {
     styleEl?.remove();
     styleEl = null;
 
+    if (keydownHandler) {
+        document.removeEventListener('keydown', keydownHandler);
+        keydownHandler = null;
+    }
+
     // Clear DOM refs
     $videoSurface = $backgroundLayer = $bufferingLayer = $errorLayer = $errorMessage = null;
     $navTitle = $playIcon = $pauseIcon = null;
     $seekProgress = $seekInput = null;
     $timeCurrent = $timeDuration = null;
     $volumeIcon = $mutedIcon = $volumeSlider = null;
+    $audioMenu = $subtitleMenu = $speedMenu = null;
+    $audioMenuItems = $subtitleMenuItems = $speedLabel = null;
+    activeMenu = null;
+    lastTracksJson = '';
 }
 
 // ─── Element resolution ───────────────────────────────────────
@@ -150,6 +174,14 @@ function resolveElements(): void {
     $volumeIcon = containerEl.querySelector('#embedded-volume-icon');
     $mutedIcon = containerEl.querySelector('#embedded-muted-icon');
     $volumeSlider = containerEl.querySelector('#embedded-volume-slider');
+
+    // Menu refs
+    $audioMenu = containerEl.querySelector('#embedded-audio-menu');
+    $subtitleMenu = containerEl.querySelector('#embedded-subtitle-menu');
+    $speedMenu = containerEl.querySelector('#embedded-speed-menu');
+    $audioMenuItems = containerEl.querySelector('#embedded-audio-menu-items');
+    $subtitleMenuItems = containerEl.querySelector('#embedded-subtitle-menu-items');
+    $speedLabel = containerEl.querySelector('#embedded-speed-label');
 }
 
 // ─── Controls wiring ──────────────────────────────────────────
@@ -207,6 +239,85 @@ function wireControls(streamUrl: string): void {
     containerEl.addEventListener('mousemove', () => resetImmerseTimer());
     containerEl.addEventListener('mouseleave', () => setImmersed(true));
 
+    // Click-to-play/pause on video surface
+    $videoSurface?.addEventListener('click', () => {
+        const isPaused = $pauseIcon?.style.display === 'none';
+        embeddedPlayerAPI.sendCommand({ type: isPaused ? 'play' : 'pause' }).catch(() => {});
+    });
+
+    // Double-click fullscreen on video surface
+    $videoSurface?.addEventListener('dblclick', () => {
+        embeddedPlayerAPI.sendCommand({ type: 'set-fullscreen', payload: { toggle: true } }).catch(() => {});
+    });
+
+    // Track & speed menu toggle buttons
+    containerEl.querySelector('#embedded-audio-btn')?.addEventListener('click', () => toggleMenu('audio'));
+    containerEl.querySelector('#embedded-subtitle-btn')?.addEventListener('click', () => toggleMenu('subtitle'));
+    containerEl.querySelector('#embedded-speed-btn')?.addEventListener('click', () => toggleMenu('speed'));
+
+    // Speed presets
+    containerEl.querySelectorAll('.speed-preset').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const speed = parseFloat((btn as HTMLElement).dataset.speed ?? '1');
+            embeddedPlayerAPI.sendCommand({ type: 'set-speed', payload: { speed } }).catch(() => {});
+            closeMenus();
+        });
+    });
+
+    // Close menus when clicking outside
+    containerEl.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        if (activeMenu && !target.closest('.menu-layer') && !target.closest('.audio-btn') && !target.closest('.subtitle-btn') && !target.closest('.speed-btn')) {
+            closeMenus();
+        }
+    });
+
+    // Keyboard shortcuts
+    keydownHandler = (e: KeyboardEvent) => {
+        if (!containerEl) return;
+
+        switch (e.key) {
+            case ' ':
+            case 'k': {
+                e.preventDefault();
+                const isPaused = $pauseIcon?.style.display === 'none';
+                embeddedPlayerAPI.sendCommand({ type: isPaused ? 'play' : 'pause' }).catch(() => {});
+                break;
+            }
+            case 'ArrowLeft':
+                e.preventDefault();
+                embeddedPlayerAPI.sendCommand({ type: 'seek', payload: { position: Math.max(0, (lastPosition ?? 0) - 10) } }).catch(() => {});
+                break;
+            case 'ArrowRight':
+                e.preventDefault();
+                embeddedPlayerAPI.sendCommand({ type: 'seek', payload: { position: (lastPosition ?? 0) + 10 } }).catch(() => {});
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                embeddedPlayerAPI.sendCommand({ type: 'set-volume', payload: { volume: Math.min(100, (lastVolume ?? 100) + 5) } }).catch(() => {});
+                break;
+            case 'ArrowDown':
+                e.preventDefault();
+                embeddedPlayerAPI.sendCommand({ type: 'set-volume', payload: { volume: Math.max(0, (lastVolume ?? 100) - 5) } }).catch(() => {});
+                break;
+            case 'm':
+                embeddedPlayerAPI.sendCommand({ type: 'set-mute', payload: { mute: $mutedIcon?.style.display === 'none' } }).catch(() => {});
+                break;
+            case 'f':
+                embeddedPlayerAPI.sendCommand({ type: 'set-fullscreen', payload: { toggle: true } }).catch(() => {});
+                break;
+            case 'Escape':
+                if (activeMenu) {
+                    closeMenus();
+                } else {
+                    destroy();
+                    history.back();
+                }
+                break;
+        }
+    };
+    document.addEventListener('keydown', keydownHandler);
+
     // Title — use stream URL basename as fallback
     if ($navTitle) {
         try {
@@ -218,10 +329,72 @@ function wireControls(streamUrl: string): void {
     }
 }
 
-// ─── Duration helper (cached from last state) ─────────────────
+// ─── Duration / position / volume helpers (cached from last state) ──
 let lastDuration = 0;
+let lastPosition: number | null = null;
+let lastVolume: number | null = null;
 function parseDuration(): number {
     return lastDuration > 0 ? lastDuration : 0;
+}
+
+// ─── Menu helpers ─────────────────────────────────────────────
+function toggleMenu(menu: 'audio' | 'subtitle' | 'speed'): void {
+    if (activeMenu === menu) {
+        closeMenus();
+        return;
+    }
+    closeMenus();
+    activeMenu = menu;
+    const menuEl = menu === 'audio' ? $audioMenu : menu === 'subtitle' ? $subtitleMenu : $speedMenu;
+    if (menuEl) menuEl.style.display = '';
+    resetImmerseTimer();
+}
+
+function closeMenus(): void {
+    activeMenu = null;
+    if ($audioMenu) $audioMenu.style.display = 'none';
+    if ($subtitleMenu) $subtitleMenu.style.display = 'none';
+    if ($speedMenu) $speedMenu.style.display = 'none';
+}
+
+function renderTrackMenu(container: HTMLElement, tracks: TrackInfo[], commandType: 'set-audio-track' | 'set-subtitle-track'): void {
+    container.innerHTML = '';
+
+    // "None" option for subtitles
+    if (commandType === 'set-subtitle-track') {
+        const noneSelected = !tracks.some((t) => t.selected);
+        const btn = document.createElement('button');
+        btn.className = 'menu-item' + (noneSelected ? ' selected' : '');
+        btn.textContent = 'None';
+        btn.addEventListener('click', () => {
+            embeddedPlayerAPI.sendCommand({ type: commandType, payload: { id: 0 } }).catch(() => {});
+            closeMenus();
+        });
+        container.appendChild(btn);
+    }
+
+    for (const track of tracks) {
+        const btn = document.createElement('button');
+        btn.className = 'menu-item' + (track.selected ? ' selected' : '');
+        const label = track.title ?? track.lang ?? `Track ${track.id}`;
+        const suffix = track.lang && track.title ? ` (${track.lang})` : '';
+        btn.textContent = label + suffix;
+        btn.addEventListener('click', () => {
+            embeddedPlayerAPI.sendCommand({ type: commandType, payload: { id: track.id } }).catch(() => {});
+            closeMenus();
+        });
+        container.appendChild(btn);
+    }
+}
+
+function updateSpeedMenu(currentSpeed: number): void {
+    if ($speedLabel) $speedLabel.textContent = `${currentSpeed}x`;
+    if (!containerEl) return;
+
+    containerEl.querySelectorAll('.speed-preset').forEach((btn) => {
+        const speed = parseFloat((btn as HTMLElement).dataset.speed ?? '1');
+        btn.classList.toggle('selected', Math.abs(speed - currentSpeed) < 0.01);
+    });
 }
 
 // ─── State callbacks ──────────────────────────────────────────
@@ -229,6 +402,8 @@ function onPlaybackState(state: HelperPlaybackState): void {
     if (!containerEl) return;
 
     lastDuration = state.duration;
+    lastPosition = state.position;
+    lastVolume = state.volume;
 
     // Play / pause icons
     if ($playIcon && $pauseIcon) {
@@ -262,6 +437,19 @@ function onPlaybackState(state: HelperPlaybackState): void {
     // Background layer — hide once video is playing
     if ($backgroundLayer && !state.paused && state.position > 0) {
         $backgroundLayer.style.display = 'none';
+    }
+
+    // Speed
+    updateSpeedMenu(state.speed);
+
+    // Track menus — re-render only when tracks change
+    const tracksJson = JSON.stringify(state.tracks);
+    if (tracksJson !== lastTracksJson) {
+        lastTracksJson = tracksJson;
+        const audioTracks = state.tracks.filter((t) => t.type === 'audio');
+        const subtitleTracks = state.tracks.filter((t) => t.type === 'subtitle');
+        if ($audioMenuItems) renderTrackMenu($audioMenuItems, audioTracks, 'set-audio-track');
+        if ($subtitleMenuItems) renderTrackMenu($subtitleMenuItems, subtitleTracks, 'set-subtitle-track');
     }
 }
 

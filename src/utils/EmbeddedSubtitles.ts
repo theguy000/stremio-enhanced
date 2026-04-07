@@ -1,6 +1,7 @@
 import Helpers from "./Helpers";
 import { getLogger } from "./logger";
 import PlaybackState from "./PlaybackState";
+import { STORAGE_KEYS } from "../constants";
 
 const logger = getLogger("EmbeddedSubtitles");
 
@@ -64,6 +65,9 @@ class EmbeddedSubtitles {
             this.extractedAlready = false; 
             return;
         }
+
+        // Embedded-mpv handles subtitles natively via mpv — skip JIT extraction
+        if (localStorage.getItem(STORAGE_KEYS.PLAYBACK_MODE) === 'embedded-mpv') return;
         
         await Helpers.waitForElm('video');
         const video = document.querySelector("video") as HTMLVideoElement;

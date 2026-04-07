@@ -319,3 +319,80 @@
     border-radius: 50%;
     cursor: pointer;
 }
+
+/* Speed label in control bar */
+.embedded-player-container .speed-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #fff;
+    min-width: 1.8rem;
+    text-align: center;
+}
+
+/* Track / speed menus */
+.embedded-player-container .menu-layer {
+    top: initial;
+    left: initial;
+    right: 1rem;
+    bottom: 5rem;
+    width: auto;
+    min-width: 12rem;
+    max-height: calc(100% - 10rem);
+    z-index: 20;
+    background: var(--modal-background-color, rgba(24, 26, 37, 0.92));
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border-radius: var(--border-radius, 4px);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    overflow-y: auto;
+    padding: 0.25rem 0;
+}
+
+.embedded-player-container .menu-header {
+    padding: 0.5rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 0.05em;
+}
+
+.embedded-player-container .menu-items {
+    display: flex;
+    flex-direction: column;
+}
+
+.embedded-player-container .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.embedded-player-container .menu-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.embedded-player-container .menu-item.selected {
+    color: var(--primary-accent-color, #7b5bf5);
+    font-weight: 600;
+}
+
+.embedded-player-container .menu-item.selected::before {
+    content: "\2713";
+    margin-right: 0.25rem;
+}
+
+/* Also auto-hide menus when immersed */
+.embedded-player-container.immersed .menu-layer {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+}
