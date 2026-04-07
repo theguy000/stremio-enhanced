@@ -54,6 +54,7 @@ export const STORAGE_KEYS = {
     EXTERNAL_PLAYER: 'externalPlayer',
     EXTERNAL_PLAYER_VLC_PATH: 'externalPlayerVlcPath',
     EXTERNAL_PLAYER_MPV_PATH: 'externalPlayerMpvPath',
+    PLAYBACK_MODE: 'playbackMode',
 } as const;
 
 /** Maps a player name to its custom-path storage key. */
@@ -81,6 +82,13 @@ export const IPC_CHANNELS = {
     SHOW_ALERT: 'show-alert',
     LAUNCH_EXTERNAL_PLAYER: 'launch-external-player',
     GET_EXTERNAL_PLAYER_PATHS: 'get-external-player-paths',
+
+    // Embedded player (helper) channels
+    EMBEDDED_PLAYER_COMMAND: 'embedded-player-command',
+    EMBEDDED_PLAYER_STATE: 'embedded-player-state',
+    EMBEDDED_PLAYER_EVENT: 'embedded-player-event',
+    EMBEDDED_PLAYER_STATUS: 'embedded-player-status',
+    EMBEDDED_PLAYER_GET_NATIVE_HANDLE: 'embedded-player-get-native-handle',
 } as const;
 
 // File extensions for mods
