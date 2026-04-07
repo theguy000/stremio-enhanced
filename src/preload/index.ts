@@ -17,6 +17,7 @@ import { checkExternalPlayer } from "./ui/externalPlayerInterceptor";
 import { applyThemeAPI } from "./api/applyTheme";
 import { gpuRendererAPI } from "./api/gpuRenderer";
 import { externalPlayerAPI } from "./api/externalPlayer";
+import { embeddedPlayerAPI } from "./api/embeddedPlayer";
 import { pluginLogger } from "./api/pluginLogger";
 
 export const stremioEnhancedAPI = {
@@ -26,6 +27,7 @@ export const stremioEnhancedAPI = {
     ...applyThemeAPI,
     ...gpuRendererAPI,
     ...externalPlayerAPI,
+    ...embeddedPlayerAPI,
 };
 
 contextBridge.exposeInMainWorld('StremioEnhancedAPI', stremioEnhancedAPI);

@@ -14,6 +14,7 @@ class Properties {
 
     public static themesPath = join(Properties.enhancedPath, "themes");
     public static pluginsPath = join(Properties.enhancedPath, "plugins");
+    public static helperLogsPath = join(Properties.enhancedPath, "helper-logs");
     public static isUsingStremioService = false;
 }
 

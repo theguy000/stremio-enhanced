@@ -167,6 +167,9 @@ app.on("ready", async () => {
         if (!existsSync(Properties.pluginsPath)) {
             mkdirSync(Properties.pluginsPath, { recursive: true });
         }
+        if (!existsSync(Properties.helperLogsPath)) {
+            mkdirSync(Properties.helperLogsPath, { recursive: true });
+        }
     } catch (err) {
         logger.error("Failed to create necessary directories: " + err);
     }
