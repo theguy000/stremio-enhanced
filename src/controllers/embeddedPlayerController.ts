@@ -18,6 +18,17 @@ let lastCrashTime = 0;
 const MAX_CRASH_RESTARTS = 3;
 const CRASH_WINDOW_MS = 30_000;
 
+function formatNativeWindowHandle(buffer: Buffer | null): string | null {
+    if (!buffer || buffer.length === 0) return null;
+    if (buffer.length >= 8) {
+        return buffer.readBigUInt64LE(0).toString();
+    }
+    if (buffer.length >= 4) {
+        return buffer.readUInt32LE(0).toString();
+    }
+    return null;
+}
+
 function setStatus(status: HelperStatus): void {
     helperStatus = status;
     mainWindowRef?.webContents.send(IPC_CHANNELS.EMBEDDED_PLAYER_STATUS, status);
@@ -71,6 +82,8 @@ function appendHelperLog(message: string): void {
 
 function launchHelper(): boolean {
     const helperPath = resolveHelperPath();
+    const nativeHandle = mainWindowRef?.getNativeWindowHandle() ?? null;
+    const hwnd = formatNativeWindowHandle(nativeHandle);
     if (!helperPath) {
         const msg = "Helper binary not found — running in stub mode (state will be mocked for UI development).";
         logger.warn(msg);
@@ -86,7 +99,10 @@ function launchHelper(): boolean {
     try {
         helperProcess = spawn(helperPath, [], {
             stdio: ['pipe', 'pipe', 'pipe'],
-            env: { ...process.env },
+            env: {
+                ...process.env,
+                ...(hwnd ? { STREMIO_HWND: hwnd } : {}),
+            },
         });
     } catch (err) {
         const msg = `Failed to spawn helper: ${err}`;

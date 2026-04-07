@@ -78,6 +78,17 @@ let lastTracksJson = '';
 // Keyboard handler ref for cleanup
 let keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
+function formatNativeWindowHandle(buffer: Buffer | null): string | null {
+    if (!buffer || buffer.length === 0) return null;
+    if (buffer.length >= 8) {
+        return buffer.readBigUInt64LE(0).toString();
+    }
+    if (buffer.length >= 4) {
+        return buffer.readUInt32LE(0).toString();
+    }
+    return null;
+}
+
 // ─── Mount ────────────────────────────────────────────────────
 function mount(streamUrl: string, _playerState: unknown): void {
     if (containerEl) {
@@ -127,11 +138,12 @@ function mount(streamUrl: string, _playerState: unknown): void {
                 return;
             }
 
-            const hwnd = await embeddedPlayerAPI.getNativeHandle();
+            const nativeHandle = await embeddedPlayerAPI.getNativeHandle();
+            const hwnd = formatNativeWindowHandle(nativeHandle);
             if (hwnd) {
                 await embeddedPlayerAPI.sendCommand({
                     type: 'attach-surface',
-                    payload: { hwnd: Buffer.from(hwnd).toString('hex') },
+                    payload: { hwnd },
                 });
             }
 
