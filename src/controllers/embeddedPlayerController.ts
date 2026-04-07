@@ -41,6 +41,7 @@ function resolveHelperPath(): string | null {
     const binaryName = process.platform === 'win32' ? 'mpv-helper.exe' : 'mpv-helper';
     const candidates: string[] = isDev
         ? [
+            join(__dirname, '..', '..', 'static', 'mpv-helper', binaryName),
             join(__dirname, '..', 'static', 'mpv-helper', binaryName),
             join(Properties.enhancedPath, 'mpv-helper', binaryName),
         ]
