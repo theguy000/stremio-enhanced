@@ -89,13 +89,13 @@ export function setupExternalPlayerDropdown() {
 
         dropdown.addEventListener('change', async (e) => {
             const selectedValue = (e.target as HTMLSelectElement).value;
-            localStorage.setItem(STORAGE_KEYS.EXTERNAL_PLAYER, selectedValue);
-            logger.info(`External player set to: ${selectedValue}`);
+            localStorage.setItem(STORAGE_KEYS.PLAYBACK_MODE, selectedValue);
+            logger.info(`Playback mode set to: ${selectedValue}`);
 
             const vlcPathOption = document.getElementById('vlc-path-option');
             const mpvPathOption = document.getElementById('mpv-path-option');
             if (vlcPathOption) vlcPathOption.style.display = selectedValue === 'vlc' ? '' : 'none';
-            if (mpvPathOption) mpvPathOption.style.display = selectedValue === 'mpv' ? '' : 'none';
+            if (mpvPathOption) mpvPathOption.style.display = (selectedValue === 'mpv') ? '' : 'none';
 
             if (selectedValue !== 'disabled') {
                 const customPath = localStorage.getItem(PLAYER_PATH_STORAGE_KEY[selectedValue]);

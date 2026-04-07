@@ -1,6 +1,6 @@
 import TemplateCache from '../../utils/templateCache';
 import { VALID_RENDERERS } from '../../interfaces/RendererTypes';
-import { VALID_EXTERNAL_PLAYERS, type ExternalPlayer } from '../../interfaces/ExternalPlayerTypes';
+import { VALID_PLAYBACK_MODES, type PlaybackMode } from '../../interfaces/ExternalPlayerTypes';
 
 export function getAboutCategoryTemplate(
     version: string,
@@ -8,7 +8,7 @@ export function getAboutCategoryTemplate(
     discordRichPresence: boolean,
     enableTransparentThemes: boolean,
     currentAngle: string,
-    currentExternalPlayer: ExternalPlayer = 'disabled',
+    currentExternalPlayer: PlaybackMode = 'disabled',
     vlcCustomPath: string = '',
     mpvCustomPath: string = ''
 ): string {
@@ -29,9 +29,9 @@ export function getAboutCategoryTemplate(
         template = template.replace(placeholder, replacement);
     });
 
-    VALID_EXTERNAL_PLAYERS.forEach(player => {
-        const placeholder = `{{ selected_${player} }}`;
-        const replacement = (currentExternalPlayer === player) ? "selected" : "";
+    VALID_PLAYBACK_MODES.forEach(mode => {
+        const placeholder = `{{ selected_${mode} }}`;
+        const replacement = (currentExternalPlayer === mode) ? "selected" : "";
         template = template.replace(placeholder, replacement);
     });
 
