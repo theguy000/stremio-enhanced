@@ -1,0 +1,321 @@
+/* Embedded Player Shell — mirrors Stremio/stremio-web Player layer structure */
+
+.embedded-player-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background-color: #000;
+    color: #fff;
+    font-family: 'PlusJakartaSans', sans-serif;
+    user-select: none;
+    overflow: hidden;
+}
+
+/* Overlay auto-hide when immersed */
+.embedded-player-container.immersed .nav-bar-layer,
+.embedded-player-container.immersed .control-bar-layer {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+}
+
+.embedded-player-container.immersed {
+    cursor: none;
+}
+
+/* Layers — stacked absolute fills, same as Stremio */
+.embedded-player-container .layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 0;
+}
+
+/* Video surface — base layer */
+.embedded-player-container .video-layer {
+    z-index: 0;
+}
+
+/* Background layer */
+.embedded-player-container .background-layer {
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+}
+
+.embedded-player-container .background-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.6;
+}
+
+/* Buffering layer */
+.embedded-player-container .buffering-layer {
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+}
+
+.embedded-player-container .buffering-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--primary-accent-color, #7b5bf5);
+    border-radius: 50%;
+    animation: embedded-spin 0.8s linear infinite;
+}
+
+@keyframes embedded-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Error layer */
+.embedded-player-container .error-layer {
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.embedded-player-container .error-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    text-align: center;
+    padding: 2rem;
+}
+
+.embedded-player-container .error-icon {
+    font-size: 3rem;
+    color: #e74c3c;
+}
+
+.embedded-player-container .error-message {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+    max-width: 400px;
+}
+
+.embedded-player-container .error-dismiss-btn {
+    padding: 0.5rem 1.5rem;
+    border: none;
+    border-radius: var(--border-radius, 4px);
+    background: var(--primary-accent-color, #7b5bf5);
+    color: #fff;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.embedded-player-container .error-dismiss-btn:hover {
+    opacity: 0.85;
+}
+
+/* Nav bar layer — top */
+.embedded-player-container .nav-bar-layer {
+    z-index: 10;
+    bottom: initial;
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    height: 3.5rem;
+    background: transparent;
+    overflow: visible;
+    opacity: 1;
+    transition: opacity 200ms ease;
+}
+
+.embedded-player-container .nav-bar-layer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: -1;
+    box-shadow: 0 0 8rem 6rem rgba(0, 0, 0, 0.8);
+}
+
+.embedded-player-container .nav-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--primary-foreground-color, #fff);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.embedded-player-container .nav-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.embedded-player-container .nav-title {
+    flex: 1;
+    margin: 0 1rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--primary-foreground-color, #fff);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.embedded-player-container .fullscreen-btn {
+    margin-left: auto;
+}
+
+/* Control bar layer — bottom */
+.embedded-player-container .control-bar-layer {
+    z-index: 10;
+    top: initial;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 0 1rem 0.5rem;
+    overflow: visible;
+    opacity: 1;
+    transition: opacity 200ms ease;
+}
+
+.embedded-player-container .control-bar-layer::before {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: -1;
+    box-shadow: 0 0 8rem 8rem rgba(0, 0, 0, 0.8);
+}
+
+/* Seek bar */
+.embedded-player-container .seek-bar-container {
+    position: relative;
+    width: 100%;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.embedded-player-container .seek-progress {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 4px;
+    background: var(--primary-accent-color, #7b5bf5);
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 1;
+    width: 0%;
+}
+
+.embedded-player-container .seek-buffered {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 4px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 0;
+    width: 0%;
+}
+
+.embedded-player-container .seek-input {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 2;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+/* Controls row */
+.embedded-player-container .controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 3rem;
+}
+
+.embedded-player-container .controls-left,
+.embedded-player-container .controls-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.embedded-player-container .control-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.embedded-player-container .control-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.embedded-player-container .time-display {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.8);
+    font-variant-numeric: tabular-nums;
+    margin-left: 0.25rem;
+}
+
+.embedded-player-container .time-separator {
+    margin: 0 0.1rem;
+}
+
+/* Volume slider */
+.embedded-player-container .volume-slider {
+    width: 80px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.embedded-player-container .volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+}

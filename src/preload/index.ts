@@ -14,6 +14,7 @@ import { initializeUserSettings, reloadServer, applyUserTheme, loadEnabledPlugin
 import { addTitleBar, getTransparencyStatus } from "./ui/titleBar";
 import { checkSettings } from "./ui/settings/settingsInjector";
 import { checkExternalPlayer } from "./ui/externalPlayerInterceptor";
+import { initEmbeddedPlayerShell } from "./ui/embeddedPlayerShell";
 import { applyThemeAPI } from "./api/applyTheme";
 import { gpuRendererAPI } from "./api/gpuRenderer";
 import { externalPlayerAPI } from "./api/externalPlayer";
@@ -37,6 +38,7 @@ window.addEventListener("load", () => {
     reloadServer();
     applyUserTheme();
     loadEnabledPlugins();
+    initEmbeddedPlayerShell();
 
     let isTransparencyEnabled = false;
 
