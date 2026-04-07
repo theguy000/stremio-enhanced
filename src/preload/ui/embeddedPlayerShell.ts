@@ -8,7 +8,7 @@ import type { HelperPlaybackState, HelperStatus, TrackInfo } from '../../interfa
 
 const logger = getLogger("EmbeddedPlayerShell");
 
-const COMPONENT_DIR = join(__dirname, '..', 'components', 'embedded-player');
+const COMPONENT_DIR = join(__dirname, '..', '..', 'components', 'embedded-player');
 const IMMERSE_TIMEOUT_MS = 3000;
 
 /** Format seconds → "h:mm:ss" or "m:ss". */
