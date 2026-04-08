@@ -36,13 +36,19 @@ class PlaybackState {
                     seriesInfo?: SeriesInfo;
                     metaItem?: { content?: MetaDetails }
                     stream?: { content: { url: string } }
+                    subtitlesTracks?: Array<{ url: string; lang: string; origin: string }>;
                 };
-                
+
                 if(playerState?.metaItem?.content) {
                     return {
                         seriesInfoDetails: playerState?.seriesInfo ?? null,
                         metaDetails: playerState!.metaItem!.content,
-                        stream: playerState?.stream
+                        stream: playerState?.stream,
+                        subtitlesTracks: playerState?.subtitlesTracks?.map(t => ({
+                            url: t.url,
+                            lang: t.lang,
+                            origin: t.origin,
+                        })),
                     };
                 }
 
