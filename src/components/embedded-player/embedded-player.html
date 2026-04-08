@@ -1,0 +1,153 @@
+<div id="embedded-player-container" class="embedded-player-container">
+    <!-- Video surface — native window attaches here -->
+    <div id="embedded-video-surface" class="layer video-layer"></div>
+
+    <!-- Background layer — shown while video has not loaded -->
+    <div id="embedded-background-layer" class="layer background-layer" style="display:none;">
+        <img id="embedded-background-image" class="background-image" src="" alt="" />
+    </div>
+
+    <!-- Buffering layer -->
+    <div id="embedded-buffering-layer" class="layer buffering-layer" style="display:none;">
+        <div class="buffering-spinner"></div>
+    </div>
+
+    <!-- Error layer -->
+    <div id="embedded-error-layer" class="layer error-layer" style="display:none;">
+        <div class="error-content">
+            <div class="error-icon">&#x26A0;</div>
+            <div id="embedded-error-message" class="error-message">Playback error</div>
+            <button id="embedded-error-dismiss" class="error-dismiss-btn">Go Back</button>
+        </div>
+    </div>
+
+    <!-- Nav bar layer — top -->
+    <div id="embedded-nav-bar" class="layer nav-bar-layer">
+        <button id="embedded-back-btn" class="nav-btn back-btn" title="Go back">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+        </button>
+        <div id="embedded-title" class="nav-title"></div>
+        <button id="embedded-fullscreen-btn" class="nav-btn fullscreen-btn" title="Toggle fullscreen">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Control bar layer — bottom -->
+    <div id="embedded-control-bar" class="layer control-bar-layer">
+        <!-- Seek bar -->
+        <div id="embedded-seek-bar" class="seek-bar-container">
+            <div id="embedded-seek-progress" class="seek-progress"></div>
+            <div id="embedded-seek-buffered" class="seek-buffered"></div>
+            <div id="embedded-seek-thumb" class="seek-thumb"></div>
+            <input id="embedded-seek-input" class="seek-input" type="range" min="0" max="100" value="0" step="0.1" />
+        </div>
+
+        <!-- Time + controls row -->
+        <div class="controls-row">
+            <div class="controls-left">
+                <button id="embedded-play-pause-btn" class="control-btn play-pause-btn" title="Play / Pause">
+                    <svg id="embedded-play-icon" viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    <svg id="embedded-pause-icon" viewBox="0 0 24 24" width="28" height="28" fill="currentColor" style="display:none;">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                </button>
+                <button id="embedded-next-btn" class="control-btn next-btn" title="Next" style="display:none;">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                    </svg>
+                </button>
+                <div class="time-display">
+                    <span id="embedded-time-current">0:00</span>
+                    <span class="time-separator">/</span>
+                    <span id="embedded-time-duration">0:00</span>
+                </div>
+            </div>
+            <div class="controls-right">
+                <button id="embedded-subtitle-btn" class="control-btn subtitle-btn" title="Subtitles">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/>
+                    </svg>
+                </button>
+                <button id="embedded-audio-btn" class="control-btn audio-btn" title="Audio tracks">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M12 3v9.28a4.39 4.39 0 00-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/>
+                    </svg>
+                </button>
+                <button id="embedded-speed-btn" class="control-btn speed-btn" title="Playback speed">
+                    <span id="embedded-speed-label" class="speed-label">1x</span>
+                </button>
+                <button id="embedded-mute-btn" class="control-btn mute-btn" title="Mute / Unmute">
+                    <svg id="embedded-volume-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 8.5v7a4.47 4.47 0 002.5-3.5zM14 3.23v2.06a7.007 7.007 0 010 13.42v2.06A9.01 9.01 0 0021 12 9.01 9.01 0 0014 3.23z"/>
+                    </svg>
+                    <svg id="embedded-muted-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" style="display:none;">
+                        <path d="M16.5 12A4.5 4.5 0 0014 8.5v2.09l2.41 2.41c.06-.31.09-.63.09-.5zM19 12c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+                    </svg>
+                </button>
+                <input id="embedded-volume-slider" class="volume-slider" type="range" min="0" max="100" value="100" />
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio track menu -->
+    <div id="embedded-audio-menu" class="layer menu-layer" style="display:none;">
+        <div class="menu-header">Audio</div>
+        <div id="embedded-audio-menu-items" class="menu-items"></div>
+    </div>
+
+    <!-- Subtitle track menu -->
+    <div id="embedded-subtitle-menu" class="layer menu-layer" style="display:none;">
+        <div class="menu-header">Subtitles</div>
+        <div id="embedded-subtitle-menu-items" class="menu-items"></div>
+    </div>
+
+    <!-- Speed menu -->
+    <div id="embedded-speed-menu" class="layer menu-layer" style="display:none;">
+        <div class="menu-header">Speed</div>
+        <div id="embedded-speed-menu-items" class="menu-items">
+            <button class="menu-item speed-preset" data-speed="2">2x</button>
+            <button class="menu-item speed-preset" data-speed="1.75">1.75x</button>
+            <button class="menu-item speed-preset" data-speed="1.5">1.5x</button>
+            <button class="menu-item speed-preset" data-speed="1.25">1.25x</button>
+            <button class="menu-item speed-preset selected" data-speed="1">1x</button>
+            <button class="menu-item speed-preset" data-speed="0.75">0.75x</button>
+            <button class="menu-item speed-preset" data-speed="0.5">0.5x</button>
+            <button class="menu-item speed-preset" data-speed="0.25">0.25x</button>
+        </div>
+    </div>
+
+    <!-- Next-video popup -->
+    <div id="embedded-next-video-popup" class="next-video-popup" style="display:none;">
+        <div class="nvp-poster">
+            <img id="nvp-poster-image" src="" alt="" />
+        </div>
+        <div class="nvp-info">
+            <div class="nvp-details">
+                <div id="nvp-series-name" class="nvp-name"></div>
+                <div id="nvp-video-title" class="nvp-title"></div>
+            </div>
+            <div class="nvp-buttons">
+                <button id="nvp-dismiss" class="nvp-btn nvp-dismiss-btn">Dismiss</button>
+                <button id="nvp-watch" class="nvp-btn nvp-play-btn">Watch Now</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Volume change indicator -->
+    <div id="embedded-volume-indicator" class="layer volume-indicator-layer" style="display:none;">
+        <div class="volume-indicator-content">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 8.5v7a4.47 4.47 0 002.5-3.5zM14 3.23v2.06a7.007 7.007 0 010 13.42v2.06A9.01 9.01 0 0021 12 9.01 9.01 0 0014 3.23z"/>
+            </svg>
+            <div class="volume-indicator-bar">
+                <div id="vol-ind-fill" class="volume-indicator-fill"></div>
+            </div>
+        </div>
+    </div>
+</div>
