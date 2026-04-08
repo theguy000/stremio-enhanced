@@ -19,7 +19,8 @@ import {
     setupTransparencyToggle,
     setupGpuDropdown,
     setupExternalPlayerDropdown,
-    setupExternalPlayerPathInputs
+    setupExternalPlayerPathInputs,
+    setupMpvHwDecodingDropdown
 } from "./settingsToggles";
 import { type ExternalPlayer } from "../../../interfaces/ExternalPlayerTypes";
 import { modController } from "../mod/modController";
@@ -71,6 +72,7 @@ export function checkSettings() {
     if(process.platform != "darwin") setupGpuDropdown();
     setupExternalPlayerDropdown();
     setupExternalPlayerPathInputs();
+    setupMpvHwDecodingDropdown();
 
     Helpers.waitForElm(SELECTORS.THEMES_CATEGORY).then(() => {
         const isCurrentThemeDefault = localStorage.getItem(STORAGE_KEYS.CURRENT_THEME) === "Default";

@@ -39,7 +39,8 @@ export function getAboutCategoryTemplate(
         .replace('{{ vlc_path_display }}', currentExternalPlayer === 'vlc' ? '' : 'none')
         .replace('{{ mpv_path_display }}', currentExternalPlayer === 'mpv' ? '' : 'none')
         .replace('{{ vlc_custom_path }}', vlcCustomPath)
-        .replace('{{ mpv_custom_path }}', mpvCustomPath);
+        .replace('{{ mpv_custom_path }}', mpvCustomPath)
+        .replace('{{ mpv_hw_display }}', currentExternalPlayer === 'embedded-mpv' ? '' : 'none');
 
     return template;
 }

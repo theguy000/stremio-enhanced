@@ -94,8 +94,15 @@ export function setupExternalPlayerDropdown() {
 
             const vlcPathOption = document.getElementById('vlc-path-option');
             const mpvPathOption = document.getElementById('mpv-path-option');
+            const mpvHwOption = document.getElementById('mpv-hw-decoding-option');
+
             if (vlcPathOption) vlcPathOption.style.display = selectedValue === 'vlc' ? '' : 'none';
             if (mpvPathOption) mpvPathOption.style.display = selectedValue === 'mpv' ? '' : 'none';
+            if (mpvHwOption) mpvHwOption.style.display = selectedValue === 'embedded-mpv' ? '' : 'none';
+
+            if (selectedValue === 'embedded-mpv') {
+                return;
+            }
 
             if (selectedValue !== 'disabled') {
                 const customPath = localStorage.getItem(PLAYER_PATH_STORAGE_KEY[selectedValue]);
@@ -113,6 +120,22 @@ export function setupExternalPlayerDropdown() {
                     }
                 }
             }
+        });
+    }).catch(() => {});
+}
+
+export function setupMpvHwDecodingDropdown() {
+    Helpers.waitForElm('#mpv-hw-decoding-dropdown').then(() => {
+        const dropdown = document.getElementById('mpv-hw-decoding-dropdown') as HTMLSelectElement;
+        if (!dropdown) return;
+
+        const saved = localStorage.getItem(STORAGE_KEYS.MPV_HW_DECODING);
+        if (saved) dropdown.value = saved;
+
+        dropdown.addEventListener('change', (e) => {
+            const selectedValue = (e.target as HTMLSelectElement).value;
+            localStorage.setItem(STORAGE_KEYS.MPV_HW_DECODING, selectedValue);
+            logger.info(`MPV hardware decoding set to: ${selectedValue}`);
         });
     }).catch(() => {});
 }

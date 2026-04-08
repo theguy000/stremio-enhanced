@@ -53,6 +53,7 @@
             <option value="disabled" {{ selected_disabled }} style="background-color: #1a1a1a; color: white;">Disabled (Default)</option>
             <option value="vlc" {{ selected_vlc }} style="background-color: #1a1a1a; color: white;">VLC</option>
             <option value="mpv" {{ selected_mpv }} style="background-color: #1a1a1a; color: white;">MPV</option>
+            <option value="embedded-mpv" {{ selected_embedded-mpv }} style="background-color: #1a1a1a; color: white;">MPV (Embedded)</option>
         </select>
     </div>
 </div>
@@ -75,7 +76,24 @@
     </div>
 </div>
 
-<p style="color:rgb(204, 204, 204);">Note: When enabled, streams will always open in the selected external player instead of the built-in player. The player must be installed on your system. You can optionally set a custom path to the player executable.</p>
+<p style="color:rgb(204, 204, 204);">Note: When enabled, streams will always open in the selected external player instead of the built-in player. The player must be installed on your system. You can optionally set a custom path to the player executable. "MPV (Embedded)" uses a bundled libmpv for native codec support including HEVC, AV1, and PGS subtitles.</p>
+
+<div class="option-vFOAS" id="mpv-hw-decoding-option" style="display: {{ mpv_hw_display }};">
+    <div class="heading-dYMDt">
+        <div class="label-qI6Vh">MPV Hardware Decoding</div>
+    </div>
+    <div class="content-P2T0i">
+        <select id="mpv-hw-decoding-dropdown" class="search-input-bAgAh text-input-hnLiz plugin-setting-select" style="width: 100%; padding: 0 15px; cursor: pointer; background-color: rgba(255, 255, 255, 0.08); color: white; border: 1px solid transparent; border-radius: 20px; outline: none; appearance: auto; box-sizing: border-box; height: 42px;">
+            <option value="auto" style="background-color: #1a1a1a; color: white;">Auto (Default)</option>
+            <option value="d3d11va" style="background-color: #1a1a1a; color: white;">D3D11VA (Windows)</option>
+            <option value="dxva2" style="background-color: #1a1a1a; color: white;">DXVA2 (Windows)</option>
+            <option value="videotoolbox" style="background-color: #1a1a1a; color: white;">VideoToolbox (macOS)</option>
+            <option value="vaapi" style="background-color: #1a1a1a; color: white;">VAAPI (Linux)</option>
+            <option value="nvdec" style="background-color: #1a1a1a; color: white;">NVDEC (NVIDIA)</option>
+            <option value="no" style="background-color: #1a1a1a; color: white;">Software</option>
+        </select>
+    </div>
+</div>
 <br/>
 
 <div class="option-vFOAS">
