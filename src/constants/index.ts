@@ -54,6 +54,7 @@ export const STORAGE_KEYS = {
     EXTERNAL_PLAYER: 'externalPlayer',
     EXTERNAL_PLAYER_VLC_PATH: 'externalPlayerVlcPath',
     EXTERNAL_PLAYER_MPV_PATH: 'externalPlayerMpvPath',
+    MPV_HW_DECODING: 'mpvHwDecoding',
 } as const;
 
 /** Maps a player name to its custom-path storage key. */
@@ -81,6 +82,25 @@ export const IPC_CHANNELS = {
     SHOW_ALERT: 'show-alert',
     LAUNCH_EXTERNAL_PLAYER: 'launch-external-player',
     GET_EXTERNAL_PLAYER_PATHS: 'get-external-player-paths',
+    // MPV Embedded Player
+    MPV_LOAD_FILE: 'mpv-load-file',
+    MPV_COMMAND: 'mpv-command',
+    MPV_SET_PROP: 'mpv-set-prop',
+    MPV_GET_PROP: 'mpv-get-prop',
+    MPV_SEEK: 'mpv-seek',
+    MPV_TOGGLE_PAUSE: 'mpv-toggle-pause',
+    MPV_SET_VOLUME: 'mpv-set-volume',
+    MPV_SET_TRACK: 'mpv-set-track',
+    MPV_SET_SPEED: 'mpv-set-speed',
+    MPV_DESTROY: 'mpv-destroy',
+    MPV_PROPERTY_CHANGE: 'mpv-property-change',
+    MPV_EVENT: 'mpv-event',
+    MPV_TRACKS_CHANGED: 'mpv-tracks-changed',
+    MPV_FILE_LOADED: 'mpv-file-loaded',
+    MPV_END_FILE: 'mpv-end-file',
+    MPV_PLAYBACK_ERROR: 'mpv-playback-error',
+    MPV_TOGGLE_FULLSCREEN: 'mpv-toggle-fullscreen',
+    MPV_IS_AVAILABLE: 'mpv-is-available',
 } as const;
 
 // File extensions for mods
