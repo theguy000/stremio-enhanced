@@ -31,6 +31,8 @@ let cleanupStatus: (() => void) | null = null;
 let cleanupEvent: (() => void) | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let boundsRafId: number | null = null;
+let scheduleBoundsUpdate: (() => void) | null = null;
+let startupBoundsInterval: ReturnType<typeof setInterval> | null = null;
 
 // ─── DOM references (populated on mount) ──────────────────────
 let $videoSurface: HTMLElement | null = null;
@@ -155,9 +157,12 @@ function mount(streamUrl: string, _playerState: unknown): void {
                     type: 'attach-surface',
                     payload: { hwnd },
                 });
+                scheduleBoundsUpdate?.();
             }
 
+            startStartupBoundsSync();
             await embeddedPlayerAPI.sendCommand({ type: 'load', payload: { url: streamUrl } });
+            scheduleBoundsUpdate?.();
         } catch (err) {
             logger.error("Failed during player startup: " + String(err));
             showError("Failed to start playback.");
@@ -184,6 +189,11 @@ function destroy(): void {
         cancelAnimationFrame(boundsRafId);
         boundsRafId = null;
     }
+    if (startupBoundsInterval !== null) {
+        clearInterval(startupBoundsInterval);
+        startupBoundsInterval = null;
+    }
+    scheduleBoundsUpdate = null;
 
     if (immerseTimer !== null) {
         clearTimeout(immerseTimer);
@@ -217,6 +227,26 @@ function destroy(): void {
     if (volumeIndTimer !== null) { clearTimeout(volumeIndTimer); volumeIndTimer = null; }
     activeMenu = null;
     lastTracksJson = '';
+}
+
+function startStartupBoundsSync(): void {
+    if (startupBoundsInterval !== null) {
+        clearInterval(startupBoundsInterval);
+    }
+
+    let attemptsRemaining = 16;
+    startupBoundsInterval = setInterval(() => {
+        if (playbackStarted || !containerEl || attemptsRemaining <= 0) {
+            if (startupBoundsInterval !== null) {
+                clearInterval(startupBoundsInterval);
+                startupBoundsInterval = null;
+            }
+            return;
+        }
+
+        scheduleBoundsUpdate?.();
+        attemptsRemaining -= 1;
+    }, 250);
 }
 
 // ─── Element resolution ───────────────────────────────────────
@@ -518,6 +548,11 @@ function onPlaybackState(state: HelperPlaybackState): void {
     // Track when real playback begins (duration becomes known)
     if (!playbackStarted && state.duration > 0) {
         playbackStarted = true;
+        if (startupBoundsInterval !== null) {
+            clearInterval(startupBoundsInterval);
+            startupBoundsInterval = null;
+        }
+        scheduleBoundsUpdate?.();
     }
 
     // Only react to ended once playback has actually started
@@ -655,6 +690,8 @@ function startBoundsSync(): void {
         pendingBounds = true;
         boundsRafId = requestAnimationFrame(sendBounds);
     };
+
+    scheduleBoundsUpdate = scheduleBounds;
 
     resizeObserver = new ResizeObserver(scheduleBounds);
     resizeObserver.observe($videoSurface);
