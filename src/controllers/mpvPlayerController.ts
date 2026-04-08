@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron';
 import { join } from 'path';
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { getLogger } from '../utils/logger';
-import { IPC_CHANNELS, STORAGE_KEYS } from '../constants';
+import { IPC_CHANNELS } from '../constants';
 import { mainWindow } from '../main';
 import Properties from '../core/Properties';
 import type { MpvFileLoadOptions, MpvSubtitleTrack } from '../interfaces/MpvTypes';
