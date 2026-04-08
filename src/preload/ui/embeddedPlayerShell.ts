@@ -78,7 +78,17 @@ let lastTracksJson = '';
 // Keyboard handler ref for cleanup
 let keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
-function formatNativeWindowHandle(buffer: Buffer | null): string | null {
+function formatNativeWindowHandle(value: Buffer | Uint8Array | number[] | null): string | null {
+    if (!value) return null;
+
+    const buffer = Buffer.isBuffer(value)
+        ? value
+        : value instanceof Uint8Array
+            ? Buffer.from(value)
+            : Array.isArray(value)
+                ? Buffer.from(value)
+                : null;
+
     if (!buffer || buffer.length === 0) return null;
     if (buffer.length >= 8) {
         return buffer.readBigUInt64LE(0).toString();
