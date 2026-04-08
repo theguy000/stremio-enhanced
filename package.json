@@ -15,7 +15,9 @@
 		"build:mac:arm64": "npm run dist && electron-builder --mac --arm64",
 		"build:win:x64": "npm run dist && electron-builder --win --x64",
 		"build:win:arm64": "npm run dist && electron-builder --win --arm64",
-		"build:win": "npm run dist && electron-builder --win"
+		"build:win": "npm run dist && electron-builder --win",
+		"build:native": "cd native/mpv-native && node-gyp rebuild",
+		"build:native:debug": "cd native/mpv-native && node-gyp rebuild --debug"
 	},
 	"repository": "https://github.com/REVENGE977/stremio-enhanced.git",
 	"publish": {
@@ -28,6 +30,8 @@
 		"@types/unzipper": "^0.10.11",
 		"electron": "^41.1.0",
 		"electron-builder": "^26.4.0",
+		"node-addon-api": "^7.0.0",
+		"node-gyp": "^10.0.0",
 		"typescript": "^5.7.2"
 	},
 	"dependencies": {
@@ -63,7 +67,15 @@
 		},
 		"asarUnpack": [
 			"**/register-scheme/build/Release/*.node",
-			"**/register-scheme/node-addon-api/src/node-api.target.mk"
+			"**/register-scheme/node-addon-api/src/node-api.target.mk",
+			"**/native/mpv-native/prebuilds/**/*.node"
+		],
+		"extraResources": [
+			{
+				"from": "native/mpv-native/prebuilds/${os}-${arch}",
+				"to": "native",
+				"filter": ["*.node"]
+			}
 		],
 		"win": {
 			"target": [
