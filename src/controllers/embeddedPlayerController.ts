@@ -13,6 +13,7 @@ let helperProcess: ChildProcess | null = null;
 let helperStatus: HelperStatus = "idle";
 let lastState: HelperPlaybackState | null = null;
 let mainWindowRef: BrowserWindow | null = null;
+let helperStdoutBuffer = '';
 let crashCount = 0;
 let lastCrashTime = 0;
 const MAX_CRASH_RESTARTS = 3;
@@ -97,6 +98,7 @@ function launchHelper(): boolean {
     appendHelperLog(`Launching helper: ${helperPath}`);
 
     try {
+        helperStdoutBuffer = '';
         helperProcess = spawn(helperPath, [], {
             stdio: ['pipe', 'pipe', 'pipe'],
             env: {
@@ -123,18 +125,23 @@ function launchHelper(): boolean {
     });
 
     helperProcess.stdout?.on('data', (data: Buffer) => {
-        const lines = data.toString().split('\n').filter(Boolean);
+        helperStdoutBuffer += data.toString();
+        const lines = helperStdoutBuffer.split(/\r?\n/);
+        helperStdoutBuffer = lines.pop() ?? '';
+
         for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+
             try {
-                const msg = JSON.parse(line);
+                const msg = JSON.parse(trimmedLine);
                 if (msg.type === 'state') {
                     forwardState(msg.payload as HelperPlaybackState);
                 } else {
                     forwardEvent(msg as HelperEvent);
                 }
             } catch {
-                logger.info(`[helper stdout] ${line}`);
-                appendHelperLog(`[stdout] ${line}`);
+                appendHelperLog(`[stdout] ${trimmedLine}`);
             }
         }
     });
@@ -150,6 +157,7 @@ function launchHelper(): boolean {
         logger.info(exitMsg);
         appendHelperLog(exitMsg);
         helperProcess = null;
+        helperStdoutBuffer = '';
 
         if (helperStatus === "shutdown") return;
 
@@ -213,6 +221,7 @@ function shutdownHelper(): void {
     }
     lastState = null;
     crashCount = 0;
+    helperStdoutBuffer = '';
 }
 
 export const embeddedPlayerController = {
